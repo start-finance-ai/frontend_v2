@@ -110,10 +110,12 @@ export default function StatusBanner({ status, isAdvanced = false, onRetry, onDi
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-        <button onClick={onRetry}
-          style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: accent, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-sans)", whiteSpace: "nowrap", letterSpacing: "-0.1px" }}>
-          다시 시도
-        </button>
+        {status === "error" && (
+          <button onClick={onRetry}
+            style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: accent, color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-sans)", whiteSpace: "nowrap", letterSpacing: "-0.1px" }}>
+            다시 시도
+          </button>
+        )}
         <button onClick={onDismiss}
           style={{ width: 22, height: 22, borderRadius: "50%", border: "none", background: isAdvanced ? "rgba(255,255,255,0.1)" : "#F3F4F6", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: isAdvanced ? "rgba(200,215,255,0.5)" : "#9CA3AF", transition: "background 0.15s" }}>
           <svg width="9" height="9" viewBox="0 0 10 10" fill="none">

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import { postChat } from "../api/client";
 import type { ChatProgram, Intent, UserProfile, UserType } from "../api/types";
 import type { ProfileData } from "../constants";
@@ -106,6 +107,54 @@ let globalMsgId = 0;
 let globalConvId = 100;
 
 type AppMode = "select" | "normal" | "advanced";
+
+function normalizeAgentMarkdown(text: string) {
+  return text
+    .replace(/\\([\\`*{}[\]()#+\-.!_>])/g, "$1")
+    .replace(/^\s*\*\*\s*$/gm, "")
+    .replace(/(^|\s)(https?:\/\/[^\s<>)\]]+)/g, "$1[공식 출처]($2)")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function AgentReply({ text, hasSources }: { text: string; hasSources: boolean }) {
+  const blockSpacing = { margin: "0 0 8px" };
+
+  return (
+    <div className="agent-markdown">
+      <ReactMarkdown
+        skipHtml
+        components={{
+          h1: ({ children }) => <h1 style={{ ...blockSpacing, fontSize: 18, lineHeight: 1.45, fontWeight: 750 }}>{children}</h1>,
+          h2: ({ children }) => <h2 style={{ ...blockSpacing, fontSize: 17, lineHeight: 1.45, fontWeight: 750 }}>{children}</h2>,
+          h3: ({ children }) => <h3 style={{ ...blockSpacing, fontSize: 16, lineHeight: 1.5, fontWeight: 700 }}>{children}</h3>,
+          h4: ({ children }) => <h4 style={{ ...blockSpacing, fontSize: 15, lineHeight: 1.5, fontWeight: 700 }}>{children}</h4>,
+          p: ({ children }) => <p style={blockSpacing}>{children}</p>,
+          ul: ({ children }) => <ul style={{ margin: "0 0 8px", paddingLeft: 20 }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ margin: "0 0 8px", paddingLeft: 22 }}>{children}</ol>,
+          li: ({ children }) => <li style={{ marginBottom: 3, paddingLeft: 2 }}>{children}</li>,
+          strong: ({ children }) => <strong style={{ fontWeight: 750 }}>{children}</strong>,
+          a: ({ children, href }) => {
+            const label = String(children);
+            const isRawUrl = /^https?:\/\//i.test(label);
+            const display = isRawUrl ? "공식 출처" : children;
+
+            if (hasSources || !href) {
+              return <span style={{ fontWeight: 600 }}>{display}</span>;
+            }
+
+            return (
+              <a href={href} target="_blank" rel="noreferrer" style={{ color: "#2563EB", fontWeight: 600, overflowWrap: "anywhere" }}>
+                {display}
+              </a>
+            );
+          },
+        }}
+      >
+        {normalizeAgentMarkdown(text)}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 export default function AgentPage({ profile, initQuery, programId, onOpenProgram, onInitQueryConsumed }: AgentPageProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -746,12 +795,14 @@ export default function AgentPage({ profile, initQuery, programId, onOpenProgram
                         backdropFilter: msg.role === "agent" ? glassBlur : undefined,
                         WebkitBackdropFilter: msg.role === "agent" ? glassBlur : undefined,
                         color: msg.role === "user" ? "#fff" : textColor,
-                        fontSize: 14, lineHeight: 1.7, fontFamily: "var(--font-sans)", whiteSpace: "pre-wrap",
+                        fontSize: 14, lineHeight: 1.7, fontFamily: "var(--font-sans)", whiteSpace: msg.role === "user" ? "pre-wrap" : "normal",
                         letterSpacing: "-0.1px",
                         boxShadow: msg.role === "user" ? "0 2px 10px rgba(27,77,255,0.22)" : "0 1px 6px rgba(0,0,0,0.08)",
                         border: msg.role === "agent" ? glassBorder : "none",
                       }}>
-                        {msg.text}
+                        {msg.role === "agent"
+                          ? <AgentReply text={msg.text} hasSources={Boolean(msg.sources?.length)} />
+                          : msg.text}
                       </div>
                       {msg.role === "agent" && (
                         <p style={{ fontSize: 10, color: mutedColor, margin: "0 2px", lineHeight: 1.5 }}>
@@ -886,6 +937,7 @@ export default function AgentPage({ profile, initQuery, programId, onOpenProgram
         textarea::placeholder { color: ${isAdvanced ? "rgba(255,255,255,0.3)" : "#9CA3AF"}; }
         input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
         input[type=number] { -moz-appearance: textfield; }
+        .agent-markdown > :last-child { margin-bottom: 0 !important; }
       `}</style>
     </div>
   );
