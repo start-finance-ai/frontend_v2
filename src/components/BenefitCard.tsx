@@ -32,19 +32,7 @@ const STATUS_CONFIG: Record<BenefitStatus, { bg: string; text: string; label: st
   "확인 필요": { bg: "#D97706", text: "#fff", label: "공고 확인 필요" },
 };
 
-const THUMBNAILS = [
-  "https://images.unsplash.com/photo-1526199119161-4be1e3368d52?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1549221428-495f00892696?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1528291781122-cd7443caef8f?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1603031682537-ea6729c9d1bc?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1497215842964-222b430dc094?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1553801613-932c79d34aa8?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1532540859745-7b3954001b75?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-  "https://images.unsplash.com/photo-1564564321837-a57b7070ac4f?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&w=400&h=520&q=80",
-];
-
 export default function BenefitCard({
-  id,
   tag,
   title,
   org,
@@ -62,8 +50,6 @@ export default function BenefitCard({
   const isUrgent = status === "신청 가능" && deadline != null && deadline <= 7;
   const tagStyle = TAG_COLORS[tag] ?? { bg: "#F0F2F7", text: "#7A849A" };
   const statusCfg = STATUS_CONFIG[status];
-  const thumbIndex = Array.from(id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % THUMBNAILS.length;
-  const thumb = THUMBNAILS[thumbIndex];
 
   return (
     <div
@@ -85,38 +71,22 @@ export default function BenefitCard({
         cursor: "default",
       }}
     >
-      {/* Thumbnail */}
-      <div style={{ width: "100%", height: 190, overflow: "hidden", flexShrink: 0, position: "relative", borderRadius: "13px 13px 0 0" }}>
-        <img
-          src={thumb}
-          alt=""
-          style={{
-            width: "100%", height: "100%", objectFit: "cover", display: "block",
-            transition: "transform 0.35s",
-            transform: hovered ? "scale(1.04)" : "scale(1)",
-            filter: status === "마감" ? "grayscale(60%) brightness(0.85)" : "none",
-          }}
-          loading="lazy"
-        />
-
-        {/* Tag pill — top left */}
+      {/* Badge row */}
+      <div style={{ padding: "13px 15px 0", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
         <span style={{
-          position: "absolute", top: 10, left: 10,
           fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99,
-          background: "rgba(255,255,255,0.92)", color: tagStyle.text,
-          backdropFilter: "blur(6px)", letterSpacing: "0.2px",
+          background: tagStyle.bg, color: tagStyle.text,
+          letterSpacing: "0.2px", flexShrink: 0,
         }}>
           {tag}
         </span>
 
-        {/* Status + deadline stack — top right */}
-        <div style={{ position: "absolute", top: 10, right: 10, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, flexWrap: "wrap" }}>
           {deadline != null && (
             <span style={{
               fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 99,
               background: isUrgent ? "#DC2626" : "rgba(0,0,0,0.50)",
               color: "#fff", letterSpacing: "0.3px",
-              backdropFilter: "blur(4px)",
             }}>
               D-{deadline}
             </span>
@@ -130,30 +100,28 @@ export default function BenefitCard({
           }}>
             {statusCfg.label}
           </span>
-        </div>
 
-        {/* Like button — bottom right */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleLike(); }}
-          style={{
-            position: "absolute", bottom: 10, right: 10,
-            width: 30, height: 30, borderRadius: "50%",
-            background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: liked ? "#E53E3E" : "#CBD5E0", transition: "color 0.15s, transform 0.15s",
-            transform: liked ? "scale(1.15)" : "scale(1)",
-            boxShadow: "0 1px 4px rgba(0,0,0,0.12)",
-          }}
-          aria-label={liked ? "찜 해제" : "찜하기"}
-        >
-          <svg width="15" height="15" viewBox="0 0 18 18" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
-            <path d="M9 15.5C9 15.5 2 11 2 6.5C2 4.567 3.567 3 5.5 3C6.77 3 7.893 3.677 8.5 4.704C9.5 4.704 9.5 4.704 9.5 4.704C10.107 3.677 11.23 3 12.5 3C14.433 3 16 4.567 16 6.5C16 11 9 15.5 9 15.5Z" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleLike(); }}
+            style={{
+              width: 30, height: 30, borderRadius: "50%",
+              background: "#F9FAFB", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: liked ? "#E53E3E" : "#CBD5E0", transition: "color 0.15s, transform 0.15s",
+              transform: liked ? "scale(1.15)" : "scale(1)",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.12)", flexShrink: 0,
+            }}
+            aria-label={liked ? "찜 해제" : "찜하기"}
+          >
+            <svg width="15" height="15" viewBox="0 0 18 18" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
+              <path d="M9 15.5C9 15.5 2 11 2 6.5C2 4.567 3.567 3 5.5 3C6.77 3 7.893 3.677 8.5 4.704C9.5 4.704 9.5 4.704 9.5 4.704C10.107 3.677 11.23 3 12.5 3C14.433 3 16 4.567 16 6.5C16 11 9 15.5 9 15.5Z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Card body */}
-      <div style={{ padding: "13px 15px 15px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+      <div style={{ padding: "10px 15px 15px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
         <div>
           <p style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.45, color: "#111827", margin: "0 0 2px" }}>
             {title}
