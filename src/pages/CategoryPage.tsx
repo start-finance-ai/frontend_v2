@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CategoryType, Screen } from "../App";
+import { getPrograms } from "../api/client";
+import type { UserType } from "../api/types";
 import BenefitCard from "../components/BenefitCard";
-import { ALL_BENEFITS, type Benefit } from "../data/benefits";
+import { searchResultToBenefit, type Benefit } from "../data/benefits";
 
 interface CategoryPageProps {
   category: CategoryType;
-  likedIds: Set<number>;
-  toggleLike: (id: number) => void;
+  likedIds: Set<string>;
+  toggleLike: (id: string) => void;
   setScreen: (s: Screen) => void;
   goDetail: (benefit: Benefit) => void;
   goSearch: (q: string) => void;
@@ -15,15 +17,19 @@ interface CategoryPageProps {
 
 const REGIONS = ["전체 지역", "서울", "경기", "부산", "인천", "대구", "광주", "대전"];
 const INDUSTRIES = ["전체 업종", "음식·요식업", "도소매", "서비스업", "제조업", "IT·기술", "교육", "예술·창작"];
-const SORTS = ["마감일순", "등록일순", "인기순"];
+const SORTS = ["기본순", "마감일순"];
 
-const CAT_INFO: Record<CategoryType, { desc: string; count: number; color: string; bg: string }> = {
-  예비창업자: { desc: "창업을 준비 중인 분들을 위한 지원사업 모음", count: 84, color: "#1B4DFF", bg: "#EEF2FF" },
-  소상공인: { desc: "운영 중인 사업장을 위한 경영안정 지원사업", count: 142, color: "#059669", bg: "#ECFDF5" },
-  프리랜서: { desc: "1인 사업자·긱워커를 위한 생활안정·교육 지원사업", count: 61, color: "#7C3AED", bg: "#F3E8FF" },
+const CAT_INFO: Record<CategoryType, { desc: string; color: string; bg: string }> = {
+  예비창업자: { desc: "창업을 준비 중인 분들을 위한 지원사업 모음", color: "#1B4DFF", bg: "#EEF2FF" },
+  소상공인: { desc: "운영 중인 사업장을 위한 경영안정 지원사업", color: "#059669", bg: "#ECFDF5" },
+  프리랜서: { desc: "프리랜서가 확인할 수 있는 지원사업 모음", color: "#7C3AED", bg: "#F3E8FF" },
 };
 
-const FILTER_TAGS = ["전체", "창업", "사업화지원", "창업공간지원", "예비창업자지원", "기타"];
+const USER_TYPE_BY_CATEGORY: Record<CategoryType, UserType> = {
+  예비창업자: "PRE_FOUNDER",
+  소상공인: "SMALL_BUSINESS_OWNER",
+  프리랜서: "FREELANCER",
+};
 
 const CATEGORY_CARDS: { type: CategoryType; label: string; desc: string; color: string; bg: string }[] = [
   { type: "예비창업자", label: "예비창업자", desc: "아직 시작 전이지만 단단하게 준비하고 있어요", color: "#1B4DFF", bg: "#EEF2FF" },
@@ -43,22 +49,47 @@ export default function CategoryPage({ category, likedIds, toggleLike, goDetail,
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("전체 지역");
   const [industry, setIndustry] = useState("전체 업종");
-  const [sort, setSort] = useState("마감일순");
+  const [sort, setSort] = useState("기본순");
   const [activeTag, setActiveTag] = useState<string>("전체");
   const [page, setPage] = useState(1);
+  const [benefits, setBenefits] = useState<Benefit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const handleSearch = () => { if (query.trim()) goSearch(query.trim()); };
   const resetPage = () => setPage(1);
 
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setActiveTag("전체");
+    getPrograms({
+      user_type: USER_TYPE_BY_CATEGORY[category],
+      region: region === "전체 지역" ? undefined : region,
+      industry: industry === "전체 업종" ? undefined : industry,
+      limit: 20,
+    })
+      .then((response) => {
+        if (!cancelled) setBenefits(response.results.map(searchResultToBenefit));
+      })
+      .catch((reason: Error) => {
+        if (!cancelled) setError(reason.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [category, region, industry, reloadKey]);
+
   const info = CAT_INFO[category];
-  const benefits = ALL_BENEFITS.filter((b) => b.categories.includes(category));
-  const filledBenefits = benefits.length < 6
-    ? [...benefits, ...ALL_BENEFITS.filter((b) => !b.categories.includes(category)).slice(0, 6 - benefits.length)]
-    : benefits;
-  const filtered = activeTag === "전체" ? filledBenefits : filledBenefits.filter((b) => b.tag === activeTag);
-  const extras = ALL_BENEFITS.filter((b) => !b.categories.includes(category)).slice(0, 6);
-  const display = filtered.length > 0 ? [...filtered, ...extras] : [];
-  const popular = ALL_BENEFITS.slice(0, 8);
+  const filterTags = ["전체", ...Array.from(new Set(benefits.map((benefit) => benefit.tag)))].slice(0, 7);
+  const filtered = activeTag === "전체" ? benefits : benefits.filter((benefit) => benefit.tag === activeTag);
+  const display = sort === "마감일순"
+    ? [...filtered].sort((a, b) => (a.deadline ?? Number.MAX_SAFE_INTEGER) - (b.deadline ?? Number.MAX_SAFE_INTEGER))
+    : filtered;
+  const popular = benefits.slice(0, 8);
 
   const totalPages = Math.ceil(display.length / PAGE_SIZE);
   const paginated = display.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -280,7 +311,7 @@ export default function CategoryPage({ category, likedIds, toggleLike, goDetail,
           <div style={{ width: 1, height: 20, background: "var(--color-border)", margin: "0 4px" }} />
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {FILTER_TAGS.map((tag) => (
+            {filterTags.map((tag) => (
               <button
                 key={tag}
                 onClick={() => { setActiveTag(tag); resetPage(); }}
@@ -308,7 +339,14 @@ export default function CategoryPage({ category, likedIds, toggleLike, goDetail,
           <strong style={{ color: "var(--color-foreground)", fontWeight: 700 }}>{display.length}개</strong>의 결과
         </p>
 
-        {display.length > 0 ? (
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "80px 0", color: "var(--color-muted-foreground)" }}>지원사업을 불러오는 중입니다…</div>
+        ) : error ? (
+          <div style={{ textAlign: "center", padding: "64px 24px", background: "#fff", border: "1px solid #FECACA", borderRadius: 14 }}>
+            <p style={{ color: "#B91C1C", margin: "0 0 12px" }}>{error}</p>
+            <button onClick={() => setReloadKey((value) => value + 1)} style={{ padding: "8px 14px", border: 0, borderRadius: 8, background: "#1B4DFF", color: "#fff", cursor: "pointer" }}>다시 시도</button>
+          </div>
+        ) : display.length > 0 ? (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
               {paginated.map((b, idx) => (

@@ -10,12 +10,12 @@ export interface ProfileData {
 }
 
 export const INITIAL_PROFILE: ProfileData = {
-  name: "김민준",
+  name: "사용자",
   userType: "예비창업자",
-  stage: "아이디어 검증 중",
-  region: "서울 마포구",
-  capital: "5,000만원",
-  industry: "IT·소프트웨어",
+  stage: "",
+  region: "",
+  capital: "",
+  industry: "",
 };
 
 export const TYPE_EMOJI: Record<CategoryType, string> = {

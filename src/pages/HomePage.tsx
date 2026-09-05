@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CategoryType } from "../App";
+import { getPrograms } from "../api/client";
 import BenefitCard from "../components/BenefitCard";
-import { ALL_BENEFITS } from "../data/benefits";
+import { searchResultToBenefit, type Benefit } from "../data/benefits";
 
 interface HomePageProps {
-  likedIds: Set<number>;
-  toggleLike: (id: number) => void;
+  likedIds: Set<string>;
+  toggleLike: (id: string) => void;
   goCategory: (cat: CategoryType) => void;
   goSearch: (q: string) => void;
+  goDetail: (benefit: Benefit) => void;
 }
 
 const CATEGORIES: { type: CategoryType; label: string; desc: string; color: string; bg: string }[] = [
@@ -34,8 +36,22 @@ const CATEGORIES: { type: CategoryType; label: string; desc: string; color: stri
   },
 ];
 
-export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }: HomePageProps) {
+export default function HomePage({ likedIds, toggleLike, goCategory, goSearch, goDetail }: HomePageProps) {
   const [query, setQuery] = useState("");
+  const [programs, setPrograms] = useState<Benefit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPrograms = () => {
+    setLoading(true);
+    setError(null);
+    getPrograms({ limit: 8 })
+      .then((response) => setPrograms(response.results.map(searchResultToBenefit)))
+      .catch((reason: Error) => setError(reason.message))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(loadPrograms, []);
 
   const handleSearch = () => {
     if (query.trim()) goSearch(query.trim());
@@ -44,8 +60,6 @@ export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }:
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") handleSearch();
   };
-
-  const popular = ALL_BENEFITS.slice(0, 8);
 
   return (
     <main style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px 80px" }}>
@@ -75,7 +89,7 @@ export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }:
         </h1>
 
         <p style={{ fontSize: 16, color: "var(--color-muted-foreground)", margin: 0, textAlign: "center" }}>
-          대출, 정부지원금, 은행상품을 복잡한 공문서 없이 쉽게 확인
+          실제 기업마당 지원사업을 복잡한 공문서 없이 쉽게 확인
         </p>
 
         <div style={{ width: "100%", maxWidth: 640, marginTop: 12, position: "relative" }}>
@@ -102,7 +116,7 @@ export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }:
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="궁금한 대출이나 지원사업을 검색해보세요"
+              placeholder="궁금한 지원사업을 검색해보세요"
               style={{
                 flex: 1,
                 border: "none",
@@ -134,7 +148,7 @@ export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }:
           </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "center", flexWrap: "wrap" }}>
-            {["경영안정자금", "창업패키지", "임차료 지원", "무이자 대출"].map((kw) => (
+            {["경영안정", "창업", "교육", "사업화"].map((kw) => (
               <button
                 key={kw}
                 onClick={() => { setQuery(kw); goSearch(kw); }}
@@ -228,8 +242,8 @@ export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }:
       <section>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
           <div>
-            <h2 style={{ fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: "-0.3px" }}>지금 마감 임박</h2>
-            <p style={{ fontSize: 13, color: "var(--color-muted-foreground)", margin: "4px 0 0" }}>기간 내 놓치지 마세요</p>
+            <h2 style={{ fontWeight: 700, fontSize: 20, margin: 0, letterSpacing: "-0.3px" }}>확인할 지원사업</h2>
+            <p style={{ fontSize: 13, color: "var(--color-muted-foreground)", margin: "4px 0 0" }}>기업마당 공식 데이터 기준</p>
           </div>
           <button
             onClick={() => goSearch("")}
@@ -248,16 +262,28 @@ export default function HomePage({ likedIds, toggleLike, goCategory, goSearch }:
           </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }}>
-          {popular.map((b) => (
-            <BenefitCard
-              key={b.id}
-              {...b}
-              liked={likedIds.has(b.id)}
-              onToggleLike={() => toggleLike(b.id)}
-            />
-          ))}
-        </div>
+        {loading ? (
+          <div style={{ padding: "64px 24px", textAlign: "center", color: "var(--color-muted-foreground)" }}>지원사업을 불러오는 중입니다…</div>
+        ) : error ? (
+          <div style={{ padding: "48px 24px", textAlign: "center", background: "#fff", border: "1px solid #FECACA", borderRadius: 14 }}>
+            <p style={{ margin: "0 0 12px", color: "#B91C1C" }}>{error}</p>
+            <button onClick={loadPrograms} style={{ padding: "8px 14px", border: 0, borderRadius: 8, background: "#1B4DFF", color: "#fff", cursor: "pointer" }}>다시 시도</button>
+          </div>
+        ) : programs.length === 0 ? (
+          <div style={{ padding: "64px 24px", textAlign: "center", color: "var(--color-muted-foreground)", background: "#fff", borderRadius: 14 }}>현재 확인된 지원사업이 없습니다.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }}>
+            {programs.map((benefit) => (
+              <div key={benefit.id} onClick={() => goDetail(benefit)} style={{ cursor: "pointer" }}>
+                <BenefitCard
+                  {...benefit}
+                  liked={likedIds.has(benefit.id)}
+                  onToggleLike={() => toggleLike(benefit.id)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );

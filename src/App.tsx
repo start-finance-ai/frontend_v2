@@ -4,15 +4,14 @@ import CategoryPage from "./pages/CategoryPage";
 import MyPage from "./pages/MyPage";
 import SearchResultsPage from "./pages/SearchResultsPage";
 import BenefitDetailPage from "./pages/BenefitDetailPage";
-import LoginPage from "./pages/LoginPage";
-import SignupPage from "./pages/SignupPage";
 import AgentPage from "./pages/AgentPage";
 import Navbar from "./components/Navbar";
+import type { Program } from "./api/types";
 import type { Benefit } from "./data/benefits";
 import { INITIAL_PROFILE } from "./constants";
 import type { CategoryType, ProfileData } from "./constants";
 
-export type Screen = "home" | "category" | "mypage" | "search" | "detail" | "login" | "signup" | "agent";
+export type Screen = "home" | "category" | "mypage" | "search" | "detail" | "agent";
 export type { CategoryType, ProfileData } from "./constants";
 export { TYPE_EMOJI, TYPE_BADGE } from "./constants";
 
@@ -20,13 +19,14 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("agent");
   const [largeFontSize, setLargeFontSize] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>("소상공인");
-  const [likedIds, setLikedIds] = useState<Set<number>>(new Set([1, 3]));
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedBenefit, setSelectedBenefit] = useState<Benefit | null>(null);
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileData>(INITIAL_PROFILE);
   const [agentInitQuery, setAgentInitQuery] = useState<string | null>(null);
+  const [agentProgramId, setAgentProgramId] = useState<string | null>(null);
 
-  const toggleLike = (id: number) => {
+  const toggleLike = (id: string) => {
     setLikedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -46,12 +46,13 @@ export default function App() {
   };
 
   const goDetail = (benefit: Benefit) => {
-    setSelectedBenefit(benefit);
+    setSelectedProgramId(benefit.id);
     setScreen("detail");
   };
 
-  const goAgentWithBenefit = (benefit: Benefit) => {
-    setAgentInitQuery(`"${benefit.title}"에 대해 궁금한 점이 있어요. 신청 대상은 "${benefit.target ?? "확인 필요"}"이고 현재 상태는 ${benefit.status}${benefit.deadline != null ? ` (D-${benefit.deadline})` : ""}이에요. 이 혜택에 대해 더 자세히 알려주세요.`);
+  const goAgentWithProgram = (program: Program) => {
+    setAgentProgramId(program.program_id);
+    setAgentInitQuery(`"${program.program_name}" 공고의 신청 대상과 준비사항을 알려주세요.`);
     setScreen("agent");
   };
 
@@ -59,7 +60,7 @@ export default function App() {
     <div className={largeFontSize ? "large-font" : ""} style={{ minHeight: "100vh", background: "var(--color-background)", fontFamily: "var(--font-sans)" }}>
       <Navbar screen={screen} setScreen={setScreen} largeFontSize={largeFontSize} setLargeFontSize={setLargeFontSize} />
       {screen === "home" && (
-        <HomePage likedIds={likedIds} toggleLike={toggleLike} goCategory={goCategory} goSearch={goSearch} />
+        <HomePage likedIds={likedIds} toggleLike={toggleLike} goCategory={goCategory} goSearch={goSearch} goDetail={goDetail} />
       )}
       {screen === "category" && (
         <CategoryPage
@@ -78,21 +79,24 @@ export default function App() {
       {screen === "search" && (
         <SearchResultsPage query={searchQuery} likedIds={likedIds} toggleLike={toggleLike} goDetail={goDetail} goSearch={goSearch} />
       )}
-      {screen === "detail" && selectedBenefit && (
+      {screen === "detail" && selectedProgramId && (
         <BenefitDetailPage
-          benefit={selectedBenefit}
-          liked={likedIds.has(selectedBenefit.id)}
-          onToggleLike={() => toggleLike(selectedBenefit.id)}
+          programId={selectedProgramId}
+          liked={likedIds.has(selectedProgramId)}
+          onToggleLike={() => toggleLike(selectedProgramId)}
           goBack={() => setScreen("category")}
-          goAgent={() => goAgentWithBenefit(selectedBenefit)}
+          goAgent={goAgentWithProgram}
         />
       )}
-      {screen === "login" && <LoginPage setScreen={setScreen} />}
-      {screen === "signup" && <SignupPage setScreen={setScreen} />}
       {screen === "agent" && (
         <AgentPage
           profile={profile}
           initQuery={agentInitQuery}
+          programId={agentProgramId}
+          onOpenProgram={(programId) => {
+            setSelectedProgramId(programId);
+            setScreen("detail");
+          }}
           onInitQueryConsumed={() => setAgentInitQuery(null)}
         />
       )}

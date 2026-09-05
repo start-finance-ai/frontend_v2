@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { postChat } from "../api/client";
+import type { ChatProgram, Intent, UserProfile, UserType } from "../api/types";
 import type { ProfileData } from "../constants";
 import { TYPE_EMOJI, TYPE_BADGE } from "../constants";
 import StatusBanner, { type BannerStatus } from "../components/StatusBanner";
@@ -6,12 +8,14 @@ import StatusBanner, { type BannerStatus } from "../components/StatusBanner";
 interface AgentPageProps {
   profile: ProfileData;
   initQuery?: string | null;
+  programId?: string | null;
+  onOpenProgram: (programId: string) => void;
   onInitQueryConsumed?: () => void;
 }
 
 interface Source {
   name: string;
-  url: string;
+  url?: string;
 }
 
 interface Message {
@@ -19,6 +23,8 @@ interface Message {
   text: string;
   id: number;
   sources?: Source[];
+  programs?: ChatProgram[];
+  replySource?: "LLM" | "TEMPLATE_FALLBACK";
   suggestAdvanced?: boolean;
 }
 
@@ -52,132 +58,42 @@ const ADV_FIELD_KEYS = ["userType", "region", "age", "stage", "industry", "capit
 const ADV_USER_TYPES = ["예비창업자", "소상공인", "프리랜서"];
 
 const ADV_STAGE_OPTIONS: Record<string, string[]> = {
-  "예비창업자": ["예비창업 단계", "사업계획 완성", "사업자등록 예정"],
-  "소상공인": ["사업자등록 O / 업력 1년 미만", "업력 1~3년", "업력 3년 이상"],
-  "프리랜서": ["활동 1년 미만", "활동 1~3년", "활동 3년 이상"],
+  "예비창업자": ["사업자등록 전"],
+  "소상공인": ["사업자등록 완료"],
+  "프리랜서": ["사업자등록 전", "사업자등록 완료"],
 };
-
-const ADV_CAPITAL_RANGES = ["500만원 미만", "500만~1,000만원", "1,000만~3,000만원", "3,000만원 이상"];
 
 const ADV_NEEDS_OPTIONS = ["지원사업", "정책자금·대출", "재무위험"];
 
-interface ReplySet {
-  texts: string[];
-  sources: Source[];
-}
+const USER_TYPE_MAP: Record<string, UserType> = {
+  예비창업자: "PRE_FOUNDER",
+  소상공인: "SMALL_BUSINESS_OWNER",
+  프리랜서: "FREELANCER",
+};
 
-const REPLIES: [RegExp, ReplySet][] = [
-  [/카페|요식|음식|베이커리/, {
-    texts: [
-      "카페 창업을 준비 중이시군요! 요식업은 초기 자금과 입지가 중요한 만큼, 지원을 잘 활용하면 부담을 꽤 줄일 수 있어요.\n\n현재 정보 기준으로 우선 확인해볼 만한 지원들이에요.\n\n① 소상공인 창업패키지 (중소벤처기업부) — 우선 확인 1순위\n   최대 1억원 규모예요. 창업 3년 미만이면 해당될 수 있지만, 지역·업종 세부 조건이 있어 공고를 꼭 확인해보세요.\n\n② 청년창업사관학교 — 조건 확인 필요\n   교육과 자금을 함께 받을 수 있어요. 만 39세 이하 조건이 있으니 해당 여부를 먼저 확인해보세요.\n\n③ 지역신용보증재단 창업보증 — 추가 확인 필요\n   담보 없이 저금리 대출 보증을 받을 수 있어요. 신용 상태에 따라 조건이 달라질 수 있어요.\n\n더 구체적인 조건이 궁금하신 항목이 있으면 말씀해 주세요!",
-    ],
-    sources: [
-      { name: "중소벤처기업부", url: "mss.go.kr" },
-      { name: "소진공 창업지원", url: "semas.or.kr" },
-      { name: "청년창업사관학교", url: "k-startup.go.kr" },
-    ],
-  }],
-  [/대출|자금|융자|무이자/, {
-    texts: [
-      "대출이나 자금 조달을 알아보고 계시는군요. 사업자 등록 여부나 업종에 따라 조건이 달라지기 때문에, 상황에 맞게 고르는 게 중요해요.\n\n현재 정보 기준으로 우선 확인해볼 만한 상품들이에요.\n\n① 소진공 소상공인 정책자금 — 우선 확인 1순위\n   연 2.5% 고정금리, 최대 7천만원 규모예요. 신용도와 업종 조건이 있어 공식 사이트에서 자세히 확인해보세요.\n\n② 신용보증기금 창업기업 보증 — 조건 확인 필요\n   무담보로 최대 1억원까지 보증이 가능해요. 업력·매출 기준 등 세부 조건이 있어요.\n\n③ 기업은행 소상공인 특별대출 — 추가 확인 필요\n   연 3.2% 수준으로 은행권 중 조건이 나은 편이에요. 심사 기준은 지점마다 다를 수 있어요.\n\n현재 사업자등록이 되어 있으신가요? 그에 따라 더 좁혀서 안내드릴 수 있어요.",
-    ],
-    sources: [
-      { name: "소상공인진흥공단", url: "semas.or.kr" },
-      { name: "신용보증기금", url: "kodit.co.kr" },
-      { name: "IBK기업은행", url: "ibk.co.kr" },
-    ],
-  }],
-  [/프리랜서|1인|긱/, {
-    texts: [
-      "프리랜서로 활동 중이시군요! 사실 프리랜서분들도 받을 수 있는 지원이 생각보다 꽤 많아요. 잘 알려지지 않아서 놓치는 경우가 많거든요.\n\n현재 정보 기준으로 우선 확인해볼 만한 혜택들이에요.\n\n① 고용보험 임의가입 — 우선 확인 1순위\n   월 2만 8천원 정도를 내면 실업급여나 육아휴직급여를 받을 수 있어요. 소득 기준 요건이 있으니 자세한 조건은 공식 사이트를 확인해 주세요.\n\n② 청년 내일채움공제 (프리랜서형) — 조건 확인 필요\n   2년 적립 시 최대 900만원을 돌려받을 수 있어요. 만 34세 이하 조건이 있어 해당 여부를 먼저 확인해보세요.\n\n③ 국민내일배움카드 — 추가 확인 필요\n   국비 최대 200만원으로 자격증·직업훈련을 받을 수 있어요. 소득 기준에 따라 지원 금액이 달라질 수 있어요.\n\n어떤 분야로 활동 중이신지 알려주시면 더 맞는 혜택을 찾아드릴게요.",
-    ],
-    sources: [
-      { name: "고용노동부", url: "moel.go.kr" },
-      { name: "HRD-Net", url: "hrd.go.kr" },
-      { name: "근로복지공단", url: "comwel.or.kr" },
-    ],
-  }],
-  [/폐업|위기|긴급|어려|힘들/, {
-    texts: [
-      "많이 힘드신 상황인 것 같아서 먼저 당장 확인해볼 수 있는 긴급 지원부터 안내드릴게요.\n\n① 소상공인 경영위기 긴급자금 — 우선 확인 1순위\n   최대 2천만원, 연 2.0% 금리로 상시 접수 중이에요. 세부 조건은 소진공 사이트에서 꼭 확인해보세요.\n\n② 중소벤처기업부 재도전 지원 — 조건 확인 필요\n   폐업 준비 비용 및 재창업 교육·컨설팅을 지원받을 수 있어요. 지원 대상 기준이 있으니 공고를 확인해 주세요.\n\n③ 지자체 생계 안정 지원금 — 추가 확인 필요\n   서울 기준 최대 150만원으로, 지역마다 조건이 달라요. 주민센터에 먼저 문의해보는 것이 가장 빠를 수 있어요.\n\n현재 어느 지역에 계신지 알려주시면 지역별 추가 지원도 찾아드릴게요.",
-    ],
-    sources: [
-      { name: "소상공인진흥공단", url: "semas.or.kr" },
-      { name: "중소벤처기업부", url: "mss.go.kr" },
-      { name: "서울시 자영업지원센터", url: "seoulsbdc.or.kr" },
-    ],
-  }],
-];
-
-const DEFAULT_SOURCES: Source[] = [
-  { name: "중소벤처기업부", url: "mss.go.kr" },
-  { name: "소상공인진흥공단", url: "semas.or.kr" },
-  { name: "기업마당", url: "bizinfo.go.kr" },
-];
-
-function getAdvancedAnalysis(form: Record<string, string>): ReplySet {
-  const userType = form.userType || "예비창업자";
-  const region = form.region || "해당 지역";
-  const age = Number(form.age) || 0;
-  const stage = form.stage || "";
-  const industry = form.industry || "해당 업종";
-  const capital = form.capital || "";
-  const needs = form.needs || "";
-
-  const isYoung = age > 0 && age <= 39;
-  const wantsLoan = needs.includes("정책자금·대출");
-  const wantsSupport = needs.includes("지원사업");
-  const wantsRisk = needs.includes("재무위험");
-
-  let analysis = `${userType} / ${region} / ${industry} 기준으로 지원 가능한 혜택을 찾아봤어요.\n\n`;
-  if (stage) analysis += `• 사업 단계: ${stage}\n`;
-  if (capital) analysis += `• 준비 자본금: ${capital}\n`;
-  analysis += "\n";
-
-  let recs = "현재 상황에서 참고로 추천드리는 지원사업이에요:\n\n";
-
-  if (wantsRisk || userType === "소상공인") {
-    recs += "① 소상공인 경영위기 긴급자금\n   — 최대 2천만원 / 연 2.0% / 상시 접수\n\n";
-    recs += "② 소진공 소상공인 정책자금\n   — 연 2.5% 고정 / 최대 7천만원\n\n";
-    recs += "③ 신용보증기금 창업기업 보증\n   — 무담보 최대 1억원\n";
-  } else if (wantsLoan) {
-    recs += "① 소진공 소상공인 정책자금\n   — 연 2.5% 고정 / 최대 7천만원\n\n";
-    recs += "② 지역신용보증재단 창업보증\n   — 저금리 대출 보증 / 상시 접수\n\n";
-    recs += "③ 신용보증기금 창업기업 보증\n   — 무담보 최대 1억원\n";
-  } else if (wantsSupport && isYoung) {
-    recs += "① 청년창업사관학교\n   — 교육·멘토링·자금 패키지 (만 39세 이하)\n\n";
-    recs += "② 소상공인 창업패키지\n   — 최대 1억원 사업화 자금\n\n";
-    recs += "③ 청년 내일채움공제\n   — 2년 적립 시 최대 900만원 환급\n";
-  } else {
-    recs += "① 소상공인 창업패키지\n   — 최대 1억원 사업화 자금 지원\n\n";
-    recs += "② 지자체 창업 지원금\n   — ${region} 지역 맞춤 지원\n\n";
-    recs += "③ 기업마당 통합 검색\n   — 업종·지역·나이별 필터로 더 찾아보세요\n";
-  }
-
+function buildFocusProfile(form: Record<string, string>): UserProfile {
+  const intents: Intent[] = [];
+  if (form.needs?.includes("지원사업")) intents.push("SUPPORT_PROGRAM");
+  if (form.needs?.includes("정책자금·대출")) intents.push("POLICY_LOAN");
+  if (form.needs?.includes("재무위험")) intents.push("FINANCIAL_RISK");
+  const age = Number(form.age);
+  const capital = Number(form.capital);
+  const preFounder = form.userType === "예비창업자";
   return {
-    texts: [analysis + recs],
-    sources: DEFAULT_SOURCES,
-  };
-}
-
-function getReply(text: string, isAdvanced: boolean): ReplySet {
-  for (const [re, replySet] of REPLIES) {
-    if (re.test(text)) return replySet;
-  }
-  if (isAdvanced) {
-    return {
-      texts: [
-        "추가로 궁금한 내용이 있으신가요?\n\n입력하신 재무 정보 기반으로 더 구체적인 분석도 도와드릴 수 있어요.",
-      ],
-      sources: DEFAULT_SOURCES,
-    };
-  }
-  return {
-    texts: [
-      "말씀하신 내용을 확인했어요. 조금 더 구체적으로 알려주시면 더 정확한 혜택을 찾아드릴 수 있어요.",
-      "우선 현재 인기 혜택 Top 3를 알려드릴게요:\n\n① 소상공인 창업패키지 — 최대 1억원\n② 청년창업사관학교 — 교육 + 자금 연계\n③ 소진공 소상공인 정책자금 — 연 2.5% 저금리\n\n어떤 상황이신지 더 말씀해주시면 맞춤 추천을 드릴게요.",
-    ],
-    sources: DEFAULT_SOURCES,
+    user_type: USER_TYPE_MAP[form.userType],
+    region: form.region || undefined,
+    age: Number.isFinite(age) && age >= 0 ? age : undefined,
+    pre_founder: preFounder || undefined,
+    business_status: preFounder
+      ? "PRE_FOUNDER"
+      : form.stage === "사업자등록 완료"
+        ? "REGISTERED"
+        : form.stage === "사업자등록 전"
+          ? "UNREGISTERED"
+          : undefined,
+    industry: form.industry || undefined,
+    capital: Number.isFinite(capital) && capital >= 0 ? capital : undefined,
+    intents,
   };
 }
 
@@ -194,7 +110,7 @@ let globalConvId = 100;
 
 type AppMode = "select" | "normal" | "advanced";
 
-export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: AgentPageProps) {
+export default function AgentPage({ profile, initQuery, programId, onOpenProgram, onInitQueryConsumed }: AgentPageProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [input, setInput] = useState("");
@@ -203,6 +119,8 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
   const [advForm, setAdvForm] = useState<Record<string, string>>({});
   const [advSubmitted, setAdvSubmitted] = useState(false);
   const [chatStatus, setChatStatus] = useState<BannerStatus | null>(null);
+  const [programContextId, setProgramContextId] = useState<string | null>(programId || null);
+  const initQuerySentRef = useRef(false);
   const lastUserInputRef = useRef<string>("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -213,38 +131,17 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeConv?.messages, isTyping]);
 
-  useEffect(() => {
-    if (initQuery) {
-      setAppMode("normal");
-      setTimeout(() => {
-        send(initQuery);
-        onInitQueryConsumed?.();
-      }, 300);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const startNewConv = () => {
     setActiveConvId(null);
     setInput("");
     setAdvSubmitted(false);
+    setProgramContextId(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
   const submitAdvancedForm = () => {
-    const { texts, sources } = getAdvancedAnalysis(advForm);
     setAdvSubmitted(true);
-    const convId = ++globalConvId;
-    const autoMsg: Message = { role: "agent", text: texts[0], id: ++globalMsgId, sources };
-    const conv: Conversation = {
-      id: convId,
-      title: "재무 분석 결과",
-      date: formatDate(new Date()),
-      messages: [autoMsg],
-      mode: "advanced",
-    };
-    setConversations((prev) => [conv, ...prev]);
-    setActiveConvId(convId);
+    void send("입력한 조건으로 신청할 수 있는 지원사업과 추가 확인사항을 알려주세요.", "advanced");
   };
 
   const resetToSelect = () => {
@@ -253,6 +150,7 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
     setInput("");
     setAdvForm({});
     setAdvSubmitted(false);
+    setProgramContextId(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
@@ -262,20 +160,16 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
     setInput("");
     setAdvForm({});
     setAdvSubmitted(false);
+    setProgramContextId(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
-  const detectBannerStatus = (reply: string, userQuery: string): BannerStatus | null => {
-    if (/조금 더 구체적으로|우선 현재 인기 혜택 Top/.test(reply)) return "empty";
-    if (CONDITION_CHECK_RE.test(userQuery) && /추가 확인 필요/.test(reply)) return "needs-review";
-    return null;
-  };
-
-  const send = (text: string) => {
+  const send = async (text: string, modeOverride?: "normal" | "advanced") => {
     if (!text.trim() || isTyping) return;
     lastUserInputRef.current = text.trim();
     setChatStatus(null);
-    const isAdv = appMode === "advanced";
+    const isAdv = (modeOverride || appMode) === "advanced";
+    if (appMode === "select" && !modeOverride) setAppMode("normal");
 
     const userMsg: Message = { role: "user", text: text.trim(), id: ++globalMsgId };
 
@@ -301,26 +195,52 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setIsTyping(true);
 
-    const { texts, sources } = getReply(text, isAdv);
-    const needsAdvanced = !isAdv && CONDITION_CHECK_RE.test(text);
-    let delay = 800;
     const capturedConvId = convId;
-    texts.forEach((reply, i) => {
-      setTimeout(() => {
-        const isLast = i === texts.length - 1;
-        const agentMsg: Message = { role: "agent", text: reply, id: ++globalMsgId, sources: isLast ? sources : undefined, suggestAdvanced: isLast && needsAdvanced };
-        setConversations((prev) =>
-          prev.map((c) => c.id === capturedConvId ? { ...c, messages: [...c.messages, agentMsg] } : c)
-        );
-        if (isLast) {
-          setIsTyping(false);
-          const detected = detectBannerStatus(reply, lastUserInputRef.current);
-          if (detected) setChatStatus(detected);
-        }
-      }, delay);
-      delay += 1300;
-    });
+    try {
+      const response = await postChat({
+        mode: isAdv ? "FOCUS" : "GENERAL",
+        message: text.trim(),
+        focus_profile: isAdv ? buildFocusProfile(advForm) : null,
+        program_id: programContextId,
+        session_id: null,
+      });
+      const sources = response.sources.map((source) => ({
+        name: source.source,
+        url: source.source_url || undefined,
+      }));
+      const agentMsg: Message = {
+        role: "agent",
+        text: response.reply,
+        id: ++globalMsgId,
+        sources,
+        programs: response.programs,
+        replySource: response.reply_source,
+        suggestAdvanced: !isAdv && response.suggest_focus_mode && CONDITION_CHECK_RE.test(text),
+      };
+      setConversations((prev) =>
+        prev.map((conversation) => conversation.id === capturedConvId
+          ? { ...conversation, messages: [...conversation.messages, agentMsg] }
+          : conversation)
+      );
+      if (response.reply_source === "TEMPLATE_FALLBACK") setChatStatus("ai-fallback");
+      else if (response.matches.some((match) => match.match_status === "NEEDS_REVIEW" || match.match_status === "UNKNOWN")) setChatStatus("needs-review");
+      else if (response.programs.length === 0 && /지원|공고|사업|혜택/.test(text)) setChatStatus("empty");
+    } catch {
+      setChatStatus("error");
+    } finally {
+      setIsTyping(false);
+    }
   };
+
+  useEffect(() => {
+    if (!initQuery || initQuerySentRef.current) return;
+    initQuerySentRef.current = true;
+    setAppMode("normal");
+    void send(initQuery, "normal");
+    onInitQueryConsumed?.();
+  // The navigation payload is intentionally consumed once.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initQuery]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
@@ -329,7 +249,7 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
   const badge = TYPE_BADGE[profile.userType] ?? TYPE_BADGE["예비창업자"];
 
   const advFilledCount = ADV_FIELD_KEYS.filter(k => (advForm[k] ?? "").trim() !== "").length;
-  const canChat = appMode === "normal" || (appMode === "advanced" && advSubmitted);
+  const canChat = appMode === "select" || appMode === "normal" || (appMode === "advanced" && advSubmitted);
   const isAdvanced = appMode === "advanced";
 
   // bg gradient based on mode
@@ -699,17 +619,11 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
 
                         {/* 6. 준비 자본금 */}
                         <div>
-                          <label style={{ fontSize: 11, fontWeight: 700, color: "rgba(200,215,255,0.75)", display: "block", marginBottom: 8, letterSpacing: "0.2px" }}>준비 자본금</label>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {ADV_CAPITAL_RANGES.map((r) => {
-                              const sel = advForm.capital === r;
-                              return (
-                                <button key={r} onClick={() => setAdvForm((p) => ({ ...p, capital: p.capital === r ? "" : r }))}
-                                  style={{ padding: "8px 12px", borderRadius: 10, border: `1.5px solid ${sel ? "#6366F1" : "rgba(255,255,255,0.12)"}`, background: sel ? "rgba(67,56,202,0.85)" : "rgba(255,255,255,0.06)", color: sel ? "#fff" : "rgba(200,215,255,0.55)", fontWeight: sel ? 800 : 500, fontSize: 12, cursor: "pointer", fontFamily: "var(--font-sans)", transition: "all 0.15s", boxShadow: sel ? "0 0 0 3px rgba(99,102,241,0.28), inset 0 1px 0 rgba(255,255,255,0.18)" : "none" }}>
-                                  {r}
-                                </button>
-                              );
-                            })}
+                          <label style={{ fontSize: 11, fontWeight: 700, color: "rgba(200,215,255,0.75)", display: "block", marginBottom: 8, letterSpacing: "0.2px" }}>준비 자본금 <span style={{ fontWeight: 400, color: "rgba(165,180,252,0.45)", fontSize: 10 }}>(원)</span></label>
+                          <div style={{ display: "flex", alignItems: "center", background: "rgba(255,255,255,0.07)", border: `1px solid ${advForm.capital ? "rgba(165,180,252,0.5)" : "rgba(255,255,255,0.12)"}`, borderRadius: 10, overflow: "hidden" }}>
+                            <input type="number" min="0" placeholder="예: 50000000" value={advForm.capital ?? ""} onChange={(e) => setAdvForm((p) => ({ ...p, capital: e.target.value }))}
+                              style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: "#F0F4FF", fontSize: 13, padding: "10px 12px", fontFamily: "var(--font-sans)" }} />
+                            <span style={{ padding: "0 12px", fontSize: 11, color: "rgba(165,180,252,0.45)" }}>원</span>
                           </div>
                         </div>
 
@@ -768,8 +682,8 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
                           <button key={label}
                             onClick={() => {
                               if (advFilledCount < ADV_FIELD_KEYS.length) return;
-                              submitAdvancedForm();
-                              setTimeout(() => send(label), 1800);
+                              setAdvSubmitted(true);
+                              void send(label, "advanced");
                             }}
                             style={{
                               padding: "14px 16px", borderRadius: 12,
@@ -799,8 +713,8 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7L5.5 10L11.5 4" stroke="#A5B4FC" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </div>
                         <div>
-                          <p style={{ fontSize: 13, fontWeight: 700, color: "#A5B4FC", margin: "0 0 2px" }}>재무 분석이 완료됐어요</p>
-                          <p style={{ fontSize: 12, color: "rgba(165,180,252,0.6)", margin: 0 }}>추가 궁금한 점은 아래 채팅창에서 물어보세요.</p>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: "#A5B4FC", margin: "0 0 2px" }}>집중 모드 조건을 적용했어요</p>
+                          <p style={{ fontSize: 12, color: "rgba(165,180,252,0.6)", margin: 0 }}>백엔드의 자격조건 매칭 결과를 기준으로 답변합니다.</p>
                         </div>
                       </div>
                     </div>
@@ -839,6 +753,16 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
                           AI가 정리한 내용은 참고용이에요. 신청 전에는 공식 사이트에서 한 번 더 확인해 주세요.
                         </p>
                       )}
+                      {msg.programs && msg.programs.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {msg.programs.map((program) => (
+                            <button key={program.program_id} onClick={() => onOpenProgram(program.program_id)} style={{ padding: "10px 12px", borderRadius: 10, border: isAdvanced ? "1px solid rgba(255,255,255,0.15)" : "1px solid #E5E7EB", background: isAdvanced ? "rgba(255,255,255,0.08)" : "#fff", color: textColor, cursor: "pointer", textAlign: "left", fontFamily: "var(--font-sans)" }}>
+                              <span style={{ display: "block", fontSize: 12, fontWeight: 700, lineHeight: 1.45 }}>{program.program_name}</span>
+                              <span style={{ display: "block", marginTop: 3, fontSize: 10, color: mutedColor }}>{program.provider || program.executing_organization || "기관 확인 필요"} · {program.apply_period_text || program.application_status_note || "신청기간 확인 필요"}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {msg.suggestAdvanced && (
                         <div style={{
                           marginTop: 4, padding: "14px 16px", borderRadius: 13,
@@ -859,13 +783,13 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
                       {msg.sources && msg.sources.length > 0 && (
                         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingLeft: 2 }}>
                           {msg.sources.map((src, si) => (
-                            <div key={si} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 6, background: isAdvanced ? "rgba(255,255,255,0.1)" : "#F3F4F6", cursor: "pointer", transition: "background 0.13s" }}
-                              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = isAdvanced ? "rgba(255,255,255,0.18)" : "#E5E7EB"; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = isAdvanced ? "rgba(255,255,255,0.1)" : "#F3F4F6"; }}
+                            <a key={si} href={src.url} target={src.url ? "_blank" : undefined} rel={src.url ? "noreferrer" : undefined} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 6, background: isAdvanced ? "rgba(255,255,255,0.1)" : "#F3F4F6", cursor: src.url ? "pointer" : "default", transition: "background 0.13s", textDecoration: "none" }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = isAdvanced ? "rgba(255,255,255,0.18)" : "#E5E7EB"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = isAdvanced ? "rgba(255,255,255,0.1)" : "#F3F4F6"; }}
                             >
                               <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M1 9L9 1M9 1H4M9 1V6" stroke={isAdvanced ? "rgba(165,180,252,0.6)" : "#9CA3AF"} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
                               <span style={{ fontSize: 11, color: mutedColor, fontWeight: 500 }}>{src.name}</span>
-                            </div>
+                            </a>
                           ))}
                         </div>
                       )}
@@ -910,7 +834,7 @@ export default function AgentPage({ profile, initQuery, onInitQueryConsumed }: A
             )}
             {!canChat && appMode === "advanced" && (
               <p style={{ fontSize: 12, color: "rgba(165,180,252,0.7)", textAlign: "center", margin: "0 0 10px" }}>
-                재무 정보를 입력하고 "분석 시작하기"를 눌러야 채팅이 활성화돼요.
+                지원 조건을 입력하고 "분석 시작하기"를 눌러야 채팅이 활성화돼요.
               </p>
             )}
             <div

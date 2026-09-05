@@ -122,65 +122,6 @@ export default function Navbar({ screen, setScreen, largeFontSize, setLargeFontS
             </div>
           </div>
 
-          <button
-            onClick={() => setScreen("login")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "7px 14px",
-              borderRadius: 8,
-              border: "1.5px solid #E5E7EB",
-              background: screen === "login" ? "#EEF2FF" : "transparent",
-              color: screen === "login" ? "#1B4DFF" : "#374151",
-              fontWeight: screen === "login" ? 600 : 400,
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "var(--font-sans)",
-              transition: "all 0.14s",
-              letterSpacing: "-0.1px",
-            }}
-            onMouseEnter={(e) => {
-              if (screen !== "login") {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "#C7D2FE";
-                (e.currentTarget as HTMLButtonElement).style.background = "#F9FAFB";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (screen !== "login") {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "#E5E7EB";
-                (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-              }
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 15 15" fill="none">
-              <circle cx="7.5" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M2 13c0-2.5 2.5-4.5 5.5-4.5S13 10.5 13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            로그인
-          </button>
-
-          <button
-            onClick={() => setScreen("signup")}
-            style={{
-              padding: "7px 16px",
-              borderRadius: 8,
-              border: "none",
-              background: "#1B4DFF",
-              color: "#fff",
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: "pointer",
-              fontFamily: "var(--font-sans)",
-              letterSpacing: "-0.1px",
-              transition: "background 0.14s",
-              marginLeft: 4,
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#1640D6"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#1B4DFF"; }}
-          >
-            회원가입
-          </button>
         </nav>
       </div>
     </header>

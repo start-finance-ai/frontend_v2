@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { ALL_BENEFITS, type Benefit } from "../data/benefits";
-import BenefitCard from "../components/BenefitCard";
+import { useEffect, useState } from "react";
+import { getProgram } from "../api/client";
+import { programToBenefit, type Benefit } from "../data/benefits";
 import type { CategoryType, ProfileData } from "../constants";
 import { TYPE_BADGE } from "../constants";
 
 interface MyPageProps {
-  likedIds: Set<number>;
-  toggleLike: (id: number) => void;
+  likedIds: Set<string>;
+  toggleLike: (id: string) => void;
   profile: ProfileData;
   setProfile: (p: ProfileData) => void;
 }
@@ -224,77 +224,6 @@ function RunwayBar({ months }: { months: number }) {
   );
 }
 
-/* ─── RecommendedPrograms ─── */
-interface Program { title: string; desc: string; target: string; tag: string; tagColor: string; tagBg: string; }
-
-function RecommendedPrograms({ months, hasLoan }: { months: number; hasLoan: boolean }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const urgent = months < 12;
-  const programs: Program[] = urgent ? [
-    { title: "소상공인 경영위기 긴급자금", desc: "", target: "예비·초기창업자", tag: "긴급", tagColor: "#DC2626", tagBg: "#FEF2F2" },
-    { title: "중소벤처기업부 재도전 지원", desc: "", target: "예비창업자", tag: "정부지원", tagColor: "#059669", tagBg: "#ECFDF5" },
-    { title: "창업 초기 경영 컨설팅 지원", desc: "", target: "3년 미만 창업자", tag: "컨설팅", tagColor: "#7C3AED", tagBg: "#F3E8FF" },
-  ] : hasLoan ? [
-    { title: "소진공 소상공인 정책자금", desc: "", target: "예비·초기창업자", tag: "저금리대출", tagColor: "#1B4DFF", tagBg: "#EEF2FF" },
-    { title: "신용보증기금 창업기업 보증", desc: "", target: "사업자등록 예정자", tag: "보증지원", tagColor: "#059669", tagBg: "#ECFDF5" },
-    { title: "소상공인 창업패키지", desc: "", target: "예비창업자", tag: "정부지원", tagColor: "#D97706", tagBg: "#FFFBEB" },
-  ] : [
-    { title: "소상공인 창업패키지", desc: "", target: "예비창업자", tag: "정부지원", tagColor: "#D97706", tagBg: "#FFFBEB" },
-    { title: "청년창업사관학교", desc: "", target: "만 39세 이하", tag: "청년", tagColor: "#1B4DFF", tagBg: "#EEF2FF" },
-    { title: "창업 초기 경영 컨설팅 지원", desc: "", target: "3년 미만 창업자", tag: "컨설팅", tagColor: "#7C3AED", tagBg: "#F3E8FF" },
-  ];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <p style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: 0, letterSpacing: "-0.3px" }}>
-        지금 상황에 도움이 될 수 있는 지원사업
-      </p>
-      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 10, overflow: "hidden" }}>
-        {programs.map((p, i) => {
-          const hovered = hoveredIdx === i;
-          return (
-            <div key={p.title}
-              onMouseEnter={() => setHoveredIdx(i)}
-              onMouseLeave={() => setHoveredIdx(null)}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "10px 14px",
-                borderTop: i > 0 ? "1px solid #F3F4F6" : "none",
-                background: hovered ? "#F8FAFF" : "#fff",
-                transition: "background 0.13s",
-                cursor: "default",
-              }}
-            >
-              <div style={{ width: 28, height: 28, borderRadius: 7, background: p.tagBg, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" stroke={p.tagColor} strokeWidth="1.3"/><path d="M4 6h4M6 4v4" stroke={p.tagColor} strokeWidth="1.3" strokeLinecap="round"/></svg>
-              </div>
-              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 7 }}>
-                <p style={{ fontWeight: 600, fontSize: 12, margin: 0, color: "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title}</p>
-                <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: p.tagBg, color: p.tagColor, flexShrink: 0 }}>{p.tag}</span>
-                <span style={{ fontSize: 10, color: "#9CA3AF", whiteSpace: "nowrap", flexShrink: 0 }}>대상: {p.target}</span>
-              </div>
-              <button
-                style={{
-                  flexShrink: 0, padding: "4px 10px", borderRadius: 6,
-                  border: "1.5px solid #C7D2FE", background: "#EEF2FF",
-                  fontSize: 11, fontWeight: 600, color: "#1B4DFF",
-                  cursor: "pointer", fontFamily: "var(--font-sans)", whiteSpace: "nowrap",
-                  opacity: hovered ? 1 : 0,
-                  transition: "opacity 0.15s",
-                  pointerEvents: hovered ? "auto" : "none",
-                }}
-              >자세히 보기</button>
-            </div>
-          );
-        })}
-      </div>
-      <p style={{ fontSize: 10, color: "#B0B8C8", margin: "6px 0 0", lineHeight: 1.5 }}>
-        위 추천은 참고용이며 실제 자격 여부는 공식 출처를 통해 확인해주세요.
-      </p>
-    </div>
-  );
-}
-
 /* ─── Section / EmptyState ─── */
 function Section({ title, sub, badge, children }: { title: string; sub: string; emoji?: string; badge?: string; children: React.ReactNode }) {
   return (
@@ -324,7 +253,7 @@ function EmptyState({ msg }: { msg: string }) {
 
 /* ─── Main component ─── */
 export default function MyPage({ likedIds, toggleLike, profile, setProfile }: MyPageProps) {
-  const [selectedBenefitId, setSelectedBenefitId] = useState<number | null>(1);
+  const [selectedBenefitId, setSelectedBenefitId] = useState<string | null>(null);
   const [sim, setSim] = useState<SimForm>(INITIAL_SIM);
   const [simResult, setSimResult] = useState<{ debt: number; months: number; monthlyNet: number } | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
@@ -337,10 +266,39 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
   const [freeResult, setFreeResult] = useState<{
     avg: number; cv: number; min: number; max: number; stability: string; color: string;
   } | null>(null);
+  const [likedBenefits, setLikedBenefits] = useState<Benefit[]>([]);
+  const [likedLoading, setLikedLoading] = useState(false);
+  const [likedError, setLikedError] = useState<string | null>(null);
 
-  const likedBenefits = ALL_BENEFITS.filter((b) => likedIds.has(b.id));
   const selectedBenefit: Benefit | undefined =
     likedBenefits.find((b) => b.id === selectedBenefitId) ?? likedBenefits[0];
+
+  useEffect(() => {
+    const ids = Array.from(likedIds);
+    if (ids.length === 0) {
+      setLikedBenefits([]);
+      setSelectedBenefitId(null);
+      setLikedError(null);
+      return;
+    }
+    let cancelled = false;
+    setLikedLoading(true);
+    setLikedError(null);
+    Promise.all(ids.map((id) => getProgram(id)))
+      .then((programs) => {
+        if (cancelled) return;
+        const benefits = programs.map(programToBenefit);
+        setLikedBenefits(benefits);
+        setSelectedBenefitId((current) => current && ids.includes(current) ? current : benefits[0]?.id || null);
+      })
+      .catch((reason: Error) => {
+        if (!cancelled) setLikedError(reason.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLikedLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [likedIds]);
 
   const runSim = () => {
     const owned = Number(sim.owned) || 0;
@@ -651,8 +609,6 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
                   본 계산기는 최악의 시나리오 기준으로 산출된 결과이며, 정확한 상담은 전문가와 진행하시기 바랍니다.
                 </p>
 
-                {/* 추천 지원사업 */}
-                <RecommendedPrograms months={simResult.months} hasLoan={Number(sim.loan) > 0} />
               </div>
             ) : (
               <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 32px", gap: 12, textAlign: "center" }}>
@@ -832,7 +788,7 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
         </Section>
       )}
       {/* ── Section B — 나한테 맞게 풀어보면 (찜 기능 통합) ── */}
-      <Section title="나한테 맞게 풀어보면" sub="찜한 혜택을 내 상황에 대입해서 해석해드려요">
+      <Section title="찜한 지원사업" sub="찜한 공고의 실제 Backend 데이터를 확인합니다">
         <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 14 }}>
           {/* 혜택 리스트 — 하트 통합 */}
           <div style={{ ...card, overflow: "hidden" }}>
@@ -840,7 +796,11 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
               <p style={{ ...labelSm }}>혜택 선택</p>
               <span style={{ fontSize: 10, color: "#9CA3AF" }}>총 {likedBenefits.length}개</span>
             </div>
-            {likedBenefits.length === 0 ? (
+            {likedLoading ? (
+              <p style={{ fontSize: 13, color: "#9CA3AF", padding: 16, margin: 0 }}>불러오는 중…</p>
+            ) : likedError ? (
+              <p style={{ fontSize: 13, color: "#B91C1C", padding: 16, margin: 0, lineHeight: 1.5 }}>{likedError}</p>
+            ) : likedBenefits.length === 0 ? (
               <p style={{ fontSize: 13, color: "#9CA3AF", padding: 16, margin: 0, lineHeight: 1.5 }}>지원사업 탭에서 마음에 드는<br />혜택을 찜해보세요</p>
             ) : likedBenefits.map((b) => {
               const active = selectedBenefit?.id === b.id;
@@ -865,12 +825,12 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
             })}
           </div>
 
-          {/* 분석 패널 */}
+          {/* 실제 공고 요약 */}
           {selectedBenefit ? (
             <div style={{ ...card, padding: 28, borderColor: "#C7D2FE", borderWidth: 1.5 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ padding: "3px 10px", borderRadius: 99, background: "#EEF2FF", color: "#1B4DFF", fontSize: 11, fontWeight: 700 }}>{profile.name}님의 경우</span>
+                  <span style={{ padding: "3px 10px", borderRadius: 99, background: "#EEF2FF", color: "#1B4DFF", fontSize: 11, fontWeight: 700 }}>공식 데이터</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{selectedBenefit.title}</span>
                 </div>
                 <button onClick={() => toggleLike(selectedBenefit.id)}
@@ -883,22 +843,18 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
                 </button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[
-                  { q: "신청 자격이 되나요?", a: `됩니다. 사업자등록 전 ${profile.userType}도 신청 가능하며, ${profile.region} 거주 조건을 충족합니다.`, ok: true },
-                  { q: `내 업종(${profile.industry})이 포함되나요?`, a: "IT 서비스업은 지원 대상 업종에 포함됩니다.", ok: true },
-                  { q: "자본금 기준으로 받을 수 있는 금액은?", a: `자본금 ${profile.capital} 기준 권장 한도는 약 3,000만원입니다.`, ok: false },
-                  { q: "언제까지 신청해야 하나요?", a: `📅 현재 상태: ${selectedBenefit.status}${selectedBenefit.deadline != null ? ` (D-${selectedBenefit.deadline})` : ""}. 서류 준비에 약 1주일이 필요합니다.`, ok: true },
-                ].map(({ q, a, ok }) => (
-                  <div key={q} style={{ padding: "12px 16px", borderRadius: 10, background: ok ? "#F0FDF4" : "#FFFBEB", border: `1px solid ${ok ? "#BBF7D0" : "#FDE68A"}` }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: "#111827" }}>{q}</p>
-                    <p style={{ fontSize: 13, color: "#374151", margin: "4px 0 0", lineHeight: 1.55 }}>{a}</p>
-                  </div>
-                ))}
+                <div style={{ padding: "12px 16px", borderRadius: 10, background: "#F9FAFB", border: "1px solid #E5E7EB" }}>
+                  <p style={{ fontSize: 11, color: "#6B7280", margin: "0 0 4px" }}>지원 대상</p>
+                  <p style={{ fontSize: 13, color: "#374151", margin: 0, lineHeight: 1.6 }}>{selectedBenefit.target || "공식 공고에서 확인 필요"}</p>
+                </div>
+                <div style={{ padding: "12px 16px", borderRadius: 10, background: "#F9FAFB", border: "1px solid #E5E7EB" }}>
+                  <p style={{ fontSize: 11, color: "#6B7280", margin: "0 0 4px" }}>공고 요약</p>
+                  <p style={{ fontSize: 13, color: "#374151", margin: 0, lineHeight: 1.6 }}>{selectedBenefit.summary}</p>
+                </div>
               </div>
-              <button style={{ marginTop: 18, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "#1B4DFF", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "var(--font-sans)", transition: "background 0.14s" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#1640D6")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#1B4DFF")}
-              >신청 페이지로 이동 →</button>
+              {selectedBenefit.sourceUrl && (
+                <a href={selectedBenefit.sourceUrl} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 18, width: "100%", padding: 12, boxSizing: "border-box", borderRadius: 10, background: "#1B4DFF", color: "#fff", fontWeight: 700, fontSize: 14, textAlign: "center", textDecoration: "none" }}>공식 공고 확인 →</a>
+              )}
             </div>
           ) : (
             <EmptyState msg="좌측에서 혜택을 선택하세요" />

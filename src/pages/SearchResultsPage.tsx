@@ -1,31 +1,46 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getPrograms } from "../api/client";
 import BenefitCard from "../components/BenefitCard";
-import { ALL_BENEFITS, type Benefit } from "../data/benefits";
+import { searchResultToBenefit, type Benefit } from "../data/benefits";
 
 interface SearchResultsPageProps {
   query: string;
-  likedIds: Set<number>;
-  toggleLike: (id: number) => void;
+  likedIds: Set<string>;
+  toggleLike: (id: string) => void;
   goDetail: (benefit: Benefit) => void;
   goSearch: (q: string) => void;
 }
 
-const TAGS = ["전체", "대출", "정부지원", "은행상품", "지자체"];
-
 export default function SearchResultsPage({ query, likedIds, toggleLike, goDetail, goSearch }: SearchResultsPageProps) {
   const [localQuery, setLocalQuery] = useState(query);
   const [activeTag, setActiveTag] = useState("전체");
+  const [programs, setPrograms] = useState<Benefit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const results = ALL_BENEFITS.filter((b) => {
-    const matchesQuery =
-      !query ||
-      b.title.includes(query) ||
-      b.summary.includes(query) ||
-      b.tag.includes(query) ||
-      (b.target ?? "").includes(query);
-    const matchesTag = activeTag === "전체" || b.tag === activeTag;
-    return matchesQuery && matchesTag;
-  });
+  useEffect(() => setLocalQuery(query), [query]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setActiveTag("전체");
+    getPrograms({ query: query || undefined, limit: 20 })
+      .then((response) => {
+        if (!cancelled) setPrograms(response.results.map(searchResultToBenefit));
+      })
+      .catch((reason: Error) => {
+        if (!cancelled) setError(reason.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [query, reloadKey]);
+
+  const tags = ["전체", ...Array.from(new Set(programs.map((program) => program.tag)))].slice(0, 8);
+  const results = activeTag === "전체" ? programs : programs.filter((program) => program.tag === activeTag);
 
   const handleSearch = () => {
     if (localQuery.trim()) goSearch(localQuery.trim());
@@ -111,7 +126,7 @@ export default function SearchResultsPage({ query, likedIds, toggleLike, goDetai
 
       {/* Tag filter */}
       <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
-        {TAGS.map((tag) => (
+        {tags.map((tag) => (
           <button
             key={tag}
             onClick={() => setActiveTag(tag)}
@@ -135,7 +150,14 @@ export default function SearchResultsPage({ query, likedIds, toggleLike, goDetai
       </div>
 
       {/* Results grid */}
-      {results.length === 0 ? (
+      {loading ? (
+        <div style={{ textAlign: "center", padding: "80px 24px", color: "var(--color-muted-foreground)" }}>지원사업을 검색하는 중입니다…</div>
+      ) : error ? (
+        <div style={{ textAlign: "center", padding: "64px 24px", background: "#fff", borderRadius: 16, border: "1px solid #FECACA" }}>
+          <p style={{ color: "#B91C1C", margin: "0 0 12px" }}>{error}</p>
+          <button onClick={() => setReloadKey((value) => value + 1)} style={{ padding: "8px 14px", border: 0, borderRadius: 8, background: "#1B4DFF", color: "#fff", cursor: "pointer" }}>다시 시도</button>
+        </div>
+      ) : results.length === 0 ? (
         <div
           style={{
             textAlign: "center",
@@ -155,16 +177,6 @@ export default function SearchResultsPage({ query, likedIds, toggleLike, goDetai
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
           {results.map((b) => (
             <div key={b.id} onClick={() => goDetail(b)} style={{ cursor: "pointer" }}>
-              <BenefitCard
-                {...b}
-                liked={likedIds.has(b.id)}
-                onToggleLike={() => toggleLike(b.id)}
-              />
-            </div>
-          ))}
-          {/* Pad with all benefits when query is empty */}
-          {!query && results.length < 8 && ALL_BENEFITS.map((b) => (
-            <div key={`pad-${b.id}`} onClick={() => goDetail(b)} style={{ cursor: "pointer" }}>
               <BenefitCard
                 {...b}
                 liked={likedIds.has(b.id)}

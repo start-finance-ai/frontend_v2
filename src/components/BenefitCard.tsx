@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { BenefitStatus } from "../data/benefits";
 
 interface BenefitCardProps {
-  id: number;
+  id: string;
   tag: string;
   title: string;
   org: string;
@@ -29,7 +29,7 @@ const STATUS_CONFIG: Record<BenefitStatus, { bg: string; text: string; label: st
   "신청 가능": { bg: "#059669", text: "#fff", label: "신청 가능" },
   "신청 예정": { bg: "#1B4DFF", text: "#fff", label: "신청 예정" },
   "마감": { bg: "#374151", text: "#fff", label: "마감" },
-  "확인 필요": { bg: "#D97706", text: "#fff", label: "예산 소진 확인" },
+  "확인 필요": { bg: "#D97706", text: "#fff", label: "공고 확인 필요" },
 };
 
 const THUMBNAILS = [
@@ -62,7 +62,8 @@ export default function BenefitCard({
   const isUrgent = status === "신청 가능" && deadline != null && deadline <= 7;
   const tagStyle = TAG_COLORS[tag] ?? { bg: "#F0F2F7", text: "#7A849A" };
   const statusCfg = STATUS_CONFIG[status];
-  const thumb = THUMBNAILS[id % THUMBNAILS.length];
+  const thumbIndex = Array.from(id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % THUMBNAILS.length;
+  const thumb = THUMBNAILS[thumbIndex];
 
   return (
     <div
