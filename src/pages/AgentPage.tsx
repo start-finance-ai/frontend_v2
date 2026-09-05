@@ -25,7 +25,7 @@ interface Message {
   sources?: Source[];
   programs?: ChatProgram[];
   replySource?: "LLM" | "TEMPLATE_FALLBACK";
-  suggestAdvanced?: boolean;
+  suggestFocusMode?: boolean;
 }
 
 interface Conversation {
@@ -49,9 +49,6 @@ const SUGGESTED_ADVANCED = [
   { label: "비슷한 조건의 다른 사람들이 많이 신청하는 지원사업은?" },
   { label: "내 업종·지역에서 신청 가능한 사업화 지원을 찾아줘" },
 ];
-
-// 자격·우선순위 등 조건 정확도가 중요한 질문 패턴
-const CONDITION_CHECK_RE = /자격|될까|해당\s*될|우선순위|내가\s*받을|가능할까|신청\s*가능한지|조건이\s*맞|대상이\s*될|나도\s*받을|신청\s*될|받을\s*수\s*있을/;
 
 const ADV_FIELD_KEYS = ["userType", "region", "age", "stage", "industry", "capital", "needs"];
 
@@ -164,6 +161,14 @@ export default function AgentPage({ profile, initQuery, programId, onOpenProgram
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
+  const continueInFocusMode = () => {
+    setAppMode("advanced");
+    setAdvSubmitted(false);
+    setConversations((prev) => prev.map((conversation) =>
+      conversation.id === activeConvId ? { ...conversation, mode: "advanced" } : conversation
+    ));
+  };
+
   const send = async (text: string, modeOverride?: "normal" | "advanced") => {
     if (!text.trim() || isTyping) return;
     lastUserInputRef.current = text.trim();
@@ -215,7 +220,7 @@ export default function AgentPage({ profile, initQuery, programId, onOpenProgram
         sources,
         programs: response.programs,
         replySource: response.reply_source,
-        suggestAdvanced: !isAdv && response.suggest_focus_mode && CONDITION_CHECK_RE.test(text),
+        suggestFocusMode: !isAdv && response.suggest_focus_mode === true,
       };
       setConversations((prev) =>
         prev.map((conversation) => conversation.id === capturedConvId
@@ -763,7 +768,7 @@ export default function AgentPage({ profile, initQuery, programId, onOpenProgram
                           ))}
                         </div>
                       )}
-                      {msg.suggestAdvanced && (
+                      {msg.suggestFocusMode && appMode !== "advanced" && (
                         <div style={{
                           marginTop: 4, padding: "14px 16px", borderRadius: 13,
                           background: "linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%)",
@@ -771,12 +776,12 @@ export default function AgentPage({ profile, initQuery, programId, onOpenProgram
                           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
                         }}>
                           <div>
-                            <p style={{ fontSize: 12, fontWeight: 700, color: "#1B4DFF", margin: "0 0 3px" }}>더 정확한 분석을 원하세요?</p>
-                            <p style={{ fontSize: 11, color: "#6B7280", margin: 0, lineHeight: 1.5 }}>정보를 입력하면 맞춤 분석을 받을 수 있어요.</p>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: "#1B4DFF", margin: "0 0 3px" }}>더 정확한 지원사업 조건 확인이 필요해요.</p>
+                            <p style={{ fontSize: 11, color: "#6B7280", margin: 0, lineHeight: 1.5 }}>핵심 정보를 입력하고 집중모드로 이어서 확인할까요?</p>
                           </div>
-                          <button onClick={() => { setAppMode("advanced"); setActiveConvId(null); setAdvSubmitted(false); }}
+                          <button onClick={continueInFocusMode}
                             style={{ flexShrink: 0, padding: "8px 14px", borderRadius: 9, border: "none", background: "#1B4DFF", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "var(--font-sans)", whiteSpace: "nowrap" }}>
-                            집중 모드로
+                            집중모드로 전환
                           </button>
                         </div>
                       )}
