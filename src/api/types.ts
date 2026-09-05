@@ -157,3 +157,87 @@ export interface ChatResponse {
   program_context_id: string | null;
 }
 
+export interface RiskCalculationRequest {
+  initial_cost: number;
+  own_capital: number;
+  monthly_revenue: number;
+  monthly_expense: number;
+  loan_amount: number;
+  annual_interest_rate: number;
+  loan_term_months: number;
+}
+
+export interface RiskCalculationResponse {
+  available_cash: number;
+  monthly_loan_payment: number;
+  monthly_cash_flow: number;
+  monthly_cash_burn: number;
+  runway_months: number | null;
+  remaining_debt_at_runway: number | null;
+  assumptions: string[];
+  disclaimer: string;
+}
+
+export interface IncomeStabilityRequest {
+  monthly_incomes: number[];
+}
+
+export interface IncomeStabilityResponse {
+  period_months: number;
+  average_income: number;
+  standard_deviation: number;
+  coefficient_of_variation_percent: number | null;
+  minimum_income: number;
+  maximum_income: number;
+  disclaimer: string;
+}
+
+export interface SalesMonth {
+  month: string;
+  sales: number;
+  transaction_count: number;
+}
+
+export interface SalesAnalysisResponse {
+  is_demo: boolean;
+  currency: string;
+  monthly_series: SalesMonth[];
+  avg: number;
+  summary: {
+    total_sales: number;
+    average_monthly_sales: number;
+    latest_month_sales: number;
+    highest_month: SalesMonth;
+    lowest_month: SalesMonth;
+    months_covered: number;
+    transaction_count: number;
+  };
+  recent_trend: {
+    percent: number | null;
+    direction: "UP" | "DOWN" | "FLAT" | "UNKNOWN";
+    basis: string;
+    previous_3m_average: number | null;
+    latest_3m_average: number | null;
+    reason: string | null;
+  };
+  variability: {
+    standard_deviation: number;
+    coefficient_of_variation_percent: number | null;
+    basis: string;
+  };
+  mom_change_percent: number | null;
+  mom_change_reason: string | null;
+  data_quality: {
+    source_format: string;
+    sheet_name: string | null;
+    rows_received: number;
+    rows_analyzed: number;
+    months_covered: number;
+    first_transaction_date: string;
+    last_transaction_date: string;
+    missing_months: string[];
+    ignored_columns: string[];
+  };
+  warnings: string[];
+  disclaimer: string;
+}

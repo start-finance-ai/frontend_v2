@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { getProgram } from "../api/client";
+import { getProgram, postIncomeStability, postRiskCalculation, postSalesAnalysis } from "../api/client";
 import { programToBenefit, type Benefit } from "../data/benefits";
 import type { CategoryType, ProfileData } from "../constants";
 import { TYPE_BADGE } from "../constants";
+import type { IncomeStabilityResponse, RiskCalculationResponse, SalesAnalysisResponse } from "../api/types";
 
 interface MyPageProps {
   likedIds: Set<string>;
@@ -12,25 +13,36 @@ interface MyPageProps {
 }
 
 interface SimForm {
-  needed: string;
-  owned: string;
-  equity: string;
-  sales: string;
-  expense: string;
-  loan: string;
-  rate: string;
-  period: string;
+  initialCost: string;
+  ownCapital: string;
+  monthlyRevenue: string;
+  monthlyExpense: string;
+  loanAmount: string;
+  annualInterestRate: string;
+  loanTermMonths: string;
 }
 
 const INITIAL_SIM: SimForm = {
-  needed: "",
-  owned: "",
-  equity: "",
-  sales: "",
-  expense: "",
-  loan: "",
-  rate: "",
-  period: "",
+  initialCost: "",
+  ownCapital: "",
+  monthlyRevenue: "",
+  monthlyExpense: "",
+  loanAmount: "",
+  annualInterestRate: "",
+  loanTermMonths: "",
+};
+
+const WON_PER_MANWON = 10_000;
+const MAX_SALES_FILE_BYTES = 5 * 1024 * 1024;
+
+const formatKrw = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
+const formatManwon = (value: number) => `${(value / WON_PER_MANWON).toLocaleString("ko-KR", { maximumFractionDigits: 2 })}만원`;
+const formatPercent = (value: number | null) => value === null ? "계산 불가" : `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}%`;
+const trendLabel: Record<SalesAnalysisResponse["recent_trend"]["direction"], string> = {
+  UP: "상승",
+  DOWN: "하락",
+  FLAT: "보합",
+  UNKNOWN: "계산 불가",
 };
 
 const USER_TYPES: { type: CategoryType }[] = [
@@ -86,10 +98,11 @@ interface SimFieldProps {
   tipText: string;
   value: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
   inputBase: React.CSSProperties;
   labelSm: React.CSSProperties;
 }
-function SimField({ label, unit, required, tipKey, activeTip, setTip, tipText, value, onChange, inputBase, labelSm }: SimFieldProps) {
+function SimField({ label, unit, required, tipKey, activeTip, setTip, tipText, value, onChange, disabled, inputBase, labelSm }: SimFieldProps) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
@@ -108,117 +121,13 @@ function SimField({ label, unit, required, tipKey, activeTip, setTip, tipText, v
         </div>
       </div>
       <div style={{ position: "relative" }}>
-        <input type="number" value={value} placeholder="0"
+        <input type="number" min="0" value={value} placeholder="0" disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           style={{ ...inputBase, paddingRight: 44 }}
           onFocus={(e) => (e.target.style.borderColor = "#1B4DFF")}
           onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
         />
         <span style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#9CA3AF", fontWeight: 500, pointerEvents: "none" }}>{unit}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ─── RunwayBar ─── */
-function RunwayBar({ months }: { months: number }) {
-  const stable = months >= 999;
-  const displayMonths = stable ? 36 : Math.min(months, 48);
-  const maxMonths = Math.max(Math.ceil(displayMonths / 6) * 6 + 6, 24);
-  const pct = stable ? 98 : Math.min((displayMonths / maxMonths) * 100, 96);
-
-  /* 눈금: 6개월 단위, 마지막 눈금은 소진 시점 */
-  const ticksSet = new Set<number>();
-  for (let m = 6; m < maxMonths; m += 6) ticksSet.add(m);
-  if (!stable) ticksSet.add(displayMonths);
-  const ticks = Array.from(ticksSet).sort((a, b) => a - b);
-
-  const dangerColor = stable ? "#059669" : months < 6 ? "#DC2626" : months < 12 ? "#C2410C" : "#B45309";
-
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 16, padding: "24px 24px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-      <p style={{ fontSize: 13, fontWeight: 700, color: "#111827", margin: "0 0 20px", letterSpacing: "-0.2px" }}>버티는 기간</p>
-
-      {/* 눈금 라벨 — overflow hidden 방지용 padding */}
-      <div style={{ position: "relative", height: 18, marginBottom: 6, overflow: "visible" }}>
-        {ticks.map((t) => {
-          const leftPct = (t / maxMonths) * 100;
-          const isEnd = !stable && t === displayMonths;
-          /* 오른쪽에 가까운 눈금은 왼쪽 정렬, 왼쪽은 중앙, 첫 눈금은 오른쪽 정렬 방지 */
-          const align = leftPct >= 88 ? "translateX(-100%)" : leftPct <= 6 ? "translateX(0%)" : "translateX(-50%)";
-          return (
-            <span key={t} style={{
-              position: "absolute",
-              left: `${leftPct}%`,
-              transform: align,
-              fontSize: 10,
-              fontWeight: isEnd ? 700 : 400,
-              color: isEnd ? dangerColor : "#9CA3AF",
-              whiteSpace: "nowrap",
-              lineHeight: 1,
-            }}>
-              {t}개월{isEnd ? " ▼" : ""}
-            </span>
-          );
-        })}
-      </div>
-
-      {/* 바 + 소진 배지 */}
-      <div style={{ position: "relative" }}>
-        {/* 소진 시점 배지 — 바 위에 floating */}
-        {!stable && (
-          <div style={{
-            position: "absolute",
-            left: `${pct}%`,
-            transform: pct >= 80 ? "translateX(-100%)" : "translateX(-50%)",
-            bottom: "calc(100% + 6px)",
-            background: dangerColor,
-            color: "#fff",
-            fontSize: 10,
-            fontWeight: 700,
-            padding: "3px 8px",
-            borderRadius: 6,
-            whiteSpace: "nowrap",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-          }}>
-            {months}개월 후 현금 소진
-            <div style={{ position: "absolute", bottom: -4, left: pct >= 80 ? "auto" : "50%", right: pct >= 80 ? 12 : "auto", transform: pct >= 80 ? "none" : "translateX(-50%)", width: 0, height: 0, borderLeft: "4px solid transparent", borderRight: "4px solid transparent", borderTop: `4px solid ${dangerColor}` }} />
-          </div>
-        )}
-
-        {/* 막대 */}
-        <div style={{ position: "relative", height: 22, borderRadius: 99, background: "#F3F4F6", overflow: "hidden" }}>
-          <div style={{
-            height: "100%",
-            width: `${pct}%`,
-            borderRadius: 99,
-            background: stable
-              ? "linear-gradient(90deg, #22C55E 0%, #059669 100%)"
-              : "linear-gradient(90deg, #22C55E 0%, #DC2626 100%)",
-            transition: "width 1s cubic-bezier(0.4,0,0.2,1)",
-          }} />
-        </div>
-
-        {/* 소진 마커 선 */}
-        {!stable && (
-          <div style={{
-            position: "absolute",
-            top: -2, bottom: -2,
-            left: `${pct}%`,
-            transform: "translateX(-1px)",
-            width: 2,
-            background: dangerColor,
-            borderRadius: 2,
-          }} />
-        )}
-      </div>
-
-      {/* 축 라벨 */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-        <span style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 500 }}>현재</span>
-        <span style={{ fontSize: 11, color: dangerColor, fontWeight: 700, whiteSpace: "nowrap" }}>
-          {stable ? "자금 여유 충분" : `${months}개월 후 소진`}
-        </span>
       </div>
     </div>
   );
@@ -255,17 +164,24 @@ function EmptyState({ msg }: { msg: string }) {
 export default function MyPage({ likedIds, toggleLike, profile, setProfile }: MyPageProps) {
   const [selectedBenefitId, setSelectedBenefitId] = useState<string | null>(null);
   const [sim, setSim] = useState<SimForm>(INITIAL_SIM);
-  const [simResult, setSimResult] = useState<{ debt: number; months: number; monthlyNet: number } | null>(null);
+  const [simResult, setSimResult] = useState<RiskCalculationResponse | null>(null);
+  const [simLoading, setSimLoading] = useState(false);
+  const [simValidation, setSimValidation] = useState<string | null>(null);
+  const [simError, setSimError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
-  const [salesUploaded, setSalesUploaded] = useState(false);
+  const [salesFile, setSalesFile] = useState<File | null>(null);
+  const [salesResult, setSalesResult] = useState<SalesAnalysisResponse | null>(null);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [salesValidation, setSalesValidation] = useState<string | null>(null);
+  const [salesError, setSalesError] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [draftProfile, setDraftProfile] = useState<ProfileData>(profile);
-  // 프리랜서 소득 안정성 분석 — 6개월 월별
   const MONTHS_KR = ["1월", "2월", "3월", "4월", "5월", "6월"];
   const [monthlyIncome, setMonthlyIncome] = useState<string[]>(["", "", "", "", "", ""]);
-  const [freeResult, setFreeResult] = useState<{
-    avg: number; cv: number; min: number; max: number; stability: string; color: string;
-  } | null>(null);
+  const [incomeResult, setIncomeResult] = useState<IncomeStabilityResponse | null>(null);
+  const [incomeLoading, setIncomeLoading] = useState(false);
+  const [incomeValidation, setIncomeValidation] = useState<string | null>(null);
+  const [incomeError, setIncomeError] = useState<string | null>(null);
   const [likedBenefits, setLikedBenefits] = useState<Benefit[]>([]);
   const [likedLoading, setLikedLoading] = useState(false);
   const [likedError, setLikedError] = useState<string | null>(null);
@@ -300,23 +216,103 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
     return () => { cancelled = true; };
   }, [likedIds]);
 
-  const runSim = () => {
-    const owned = Number(sim.owned) || 0;
-    const sales = Number(sim.sales) || 0;
-    const expense = Number(sim.expense) || 0;
-    const loan = Number(sim.loan) || 0;
-    const rate = Number(sim.rate) / 100 / 12;
-    const period = Number(sim.period) || 0;
-    const monthlyRepay = loan > 0 && period > 0
-      ? loan / period + loan * rate
-      : loan > 0 ? loan * rate : 0;
-    const monthlyNet = sales - expense - monthlyRepay;
-    const runway = monthlyNet >= 0 ? 999 : (owned > 0 ? Math.floor(owned / Math.abs(monthlyNet)) : 0);
-    const totalDebt = loan + (monthlyNet < 0 ? Math.abs(monthlyNet) * Math.min(runway, 36) : 0);
-    setSimResult({ debt: Math.round(totalDebt), months: Math.max(0, runway), monthlyNet: Math.round(monthlyNet) });
+  const clearSimFeedback = () => {
+    setSimResult(null);
+    setSimValidation(null);
+    setSimError(null);
+  };
+
+  const runSim = async () => {
+    if (simLoading) return;
+    clearSimFeedback();
+    const values = Object.values(sim).map(Number);
+    if (Object.values(sim).some((value) => value.trim() === "") || values.some((value) => !Number.isFinite(value) || value < 0)) {
+      setSimValidation("7개 항목을 모두 0 이상의 숫자로 입력해주세요.");
+      return;
+    }
+    const loanTermMonths = Number(sim.loanTermMonths);
+    if (!Number.isInteger(loanTermMonths) || (Number(sim.loanAmount) > 0 && loanTermMonths < 1)) {
+      setSimValidation("대출금액이 있으면 대출기간을 1개월 이상의 정수로 입력해주세요.");
+      return;
+    }
+    setSimLoading(true);
+    try {
+      setSimResult(await postRiskCalculation({
+        initial_cost: Number(sim.initialCost) * WON_PER_MANWON,
+        own_capital: Number(sim.ownCapital) * WON_PER_MANWON,
+        monthly_revenue: Number(sim.monthlyRevenue) * WON_PER_MANWON,
+        monthly_expense: Number(sim.monthlyExpense) * WON_PER_MANWON,
+        loan_amount: Number(sim.loanAmount) * WON_PER_MANWON,
+        annual_interest_rate: Number(sim.annualInterestRate),
+        loan_term_months: loanTermMonths,
+      }));
+    } catch (error) {
+      setSimError(error instanceof Error ? error.message : "요청을 처리하지 못했습니다.");
+    } finally {
+      setSimLoading(false);
+    }
   };
 
   const simFilledCount = Object.values(sim).filter(v => v.trim() !== "").length;
+
+  const selectSalesFile = (file: File | null) => {
+    setSalesResult(null);
+    setSalesError(null);
+    setSalesValidation(null);
+    setSalesFile(null);
+    if (!file) return;
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (extension !== "csv" && extension !== "xlsx") {
+      setSalesValidation("CSV 또는 XLSX 파일만 업로드할 수 있습니다.");
+      return;
+    }
+    if (file.size > MAX_SALES_FILE_BYTES) {
+      setSalesValidation("파일 크기는 5MB 이하여야 합니다.");
+      return;
+    }
+    setSalesFile(file);
+  };
+
+  const runSalesAnalysis = async () => {
+    if (salesLoading) return;
+    setSalesResult(null);
+    setSalesError(null);
+    setSalesValidation(null);
+    if (!salesFile) {
+      setSalesValidation("분석할 CSV 또는 XLSX 파일을 선택해주세요.");
+      return;
+    }
+    setSalesLoading(true);
+    try {
+      setSalesResult(await postSalesAnalysis(salesFile));
+    } catch (error) {
+      setSalesError(error instanceof Error ? error.message : "요청을 처리하지 못했습니다.");
+    } finally {
+      setSalesLoading(false);
+    }
+  };
+
+  const runIncomeAnalysis = async () => {
+    if (incomeLoading) return;
+    setIncomeResult(null);
+    setIncomeError(null);
+    setIncomeValidation(null);
+    const values = monthlyIncome.map(Number);
+    if (monthlyIncome.some((value) => value.trim() === "") || values.some((value) => !Number.isFinite(value) || value < 0)) {
+      setIncomeValidation("최근 6개월 소득을 모두 0 이상의 숫자로 입력해주세요.");
+      return;
+    }
+    setIncomeLoading(true);
+    try {
+      setIncomeResult(await postIncomeStability({
+        monthly_incomes: values.map((value) => value * WON_PER_MANWON),
+      }));
+    } catch (error) {
+      setIncomeError(error instanceof Error ? error.message : "요청을 처리하지 못했습니다.");
+    } finally {
+      setIncomeLoading(false);
+    }
+  };
 
   const openEdit = () => { setDraftProfile({ ...profile }); setEditingProfile(true); };
   const saveEdit = () => { setProfile({ ...draftProfile }); setEditingProfile(false); };
@@ -334,7 +330,7 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
         >
           <div style={{ background: "#fff", borderRadius: 20, padding: "36px 40px", width: "100%", maxWidth: 520, boxShadow: "0 32px 80px rgba(0,0,0,0.18)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
-              <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0, letterSpacing: "-0.5px" }}>내 정보 수정</h2>
+              <h2 style={{ fontWeight: 800, fontSize: 20, margin: 0, letterSpacing: "-0.5px" }}>조건 수정</h2>
               <button onClick={() => setEditingProfile(false)} style={{ width: 32, height: 32, borderRadius: "50%", border: "none", background: "#F3F4F6", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#6B7280", transition: "background 0.15s" }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#E5E7EB")}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#F3F4F6")}
@@ -409,8 +405,9 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
                 style={{ flex: 2, padding: "13px", borderRadius: 11, border: "none", background: "#1B4DFF", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "var(--font-sans)", letterSpacing: "-0.1px", transition: "background 0.14s" }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#1640D6")}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#1B4DFF")}
-              >저장하기</button>
+              >조건 적용</button>
             </div>
+            <p style={{ fontSize: 11, color: "#9CA3AF", margin: "12px 0 0", textAlign: "center" }}>입력한 조건은 현재 화면에만 적용됩니다.</p>
           </div>
         </div>
       )}
@@ -443,180 +440,93 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
           style={{ padding: "9px 18px", borderRadius: 9, border: "1.5px solid #E5E7EB", background: "transparent", fontSize: 13, fontWeight: 500, color: "#6B7280", cursor: "pointer", fontFamily: "var(--font-sans)", flexShrink: 0, transition: "all 0.14s" }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#1B4DFF"; (e.currentTarget as HTMLButtonElement).style.color = "#1B4DFF"; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#E5E7EB"; (e.currentTarget as HTMLButtonElement).style.color = "#6B7280"; }}
-        >정보 수정</button>
+        >조건 수정</button>
       </div>
 
 
 
       {/* ── Section C — 리스크 계산기 (예비창업자) ── */}
       {profile.userType === "예비창업자" && (
-        <Section title="리스크 계산기" sub="최악의 경우를 미리 계산해 준비하세요" badge="예비창업자 전용">
-          {/* tooltip overlay */}
-          {tooltip && (
-            <div onClick={() => setTooltip(null)} style={{ position: "fixed", inset: 0, zIndex: 100 }} />
-          )}
+        <Section title="리스크 계산기" sub="입력값을 Backend의 결정론적 계산식으로 분석합니다" badge="예비창업자 전용">
+          {tooltip && <div onClick={() => setTooltip(null)} style={{ position: "fixed", inset: 0, zIndex: 100 }} />}
           <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: 20, alignItems: "stretch", position: "relative" }}>
-
-            {/* ─ 왼쪽: 입력 폼 ─ */}
             <div style={{ ...card, padding: "28px 28px 24px" }}>
               <div style={{ marginBottom: 18 }}>
                 <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 5px", letterSpacing: "-0.3px" }}>재무 정보를 입력해주세요</p>
-                <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0, lineHeight: 1.55 }}>핵심 항목 3개 이상만 입력해도 분석이 가능합니다</p>
+                <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0, lineHeight: 1.55 }}>Backend 계산에 필요한 7개 항목을 모두 입력합니다</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-                <SimField
-                  label="필요 자금" unit="만원"
-                  tipKey="needed" activeTip={tooltip} setTip={setTooltip}
-                  tipText="사업에 필요한 총 자금입니다. 임차보증금, 초도비용 등을 합산해주세요."
-                  value={sim.needed}
-                  onChange={(v) => { setSim((p) => ({ ...p, needed: v })); setSimResult(null); }}
-                  inputBase={inputBase} labelSm={labelSm}
-                />
-
-                <SimField
-                  label="보유 자금" unit="만원"
-                  tipKey="owned" activeTip={tooltip} setTip={setTooltip}
-                  tipText="현재 본인이 보유한 사업 가용 현금성 자금입니다."
-                  value={sim.owned}
-                  onChange={(v) => { setSim((p) => ({ ...p, owned: v })); setSimResult(null); }}
-                  inputBase={inputBase} labelSm={labelSm}
-                />
-
-                <SimField
-                  label="자기자본" unit="만원"
-                  tipKey="equity" activeTip={tooltip} setTip={setTooltip}
-                  tipText="총 자산에서 부채를 뺀 순자산입니다. 부동산·설비 등 비유동자산 포함 가능합니다."
-                  value={sim.equity}
-                  onChange={(v) => { setSim((p) => ({ ...p, equity: v })); setSimResult(null); }}
-                  inputBase={inputBase} labelSm={labelSm}
-                />
-
-                <SimField
-                  label="월평균 매출·수입" unit="만원"
-                  tipKey="sales" activeTip={tooltip} setTip={setTooltip}
-                  tipText="최근 3개월 월평균 매출 또는 수입입니다. 예비창업자는 예상 수치를 입력하세요."
-                  value={sim.sales}
-                  onChange={(v) => { setSim((p) => ({ ...p, sales: v })); setSimResult(null); }}
-                  inputBase={inputBase} labelSm={labelSm}
-                />
-
-                <SimField
-                  label="월평균 지출" unit="만원"
-                  tipKey="expense" activeTip={tooltip} setTip={setTooltip}
-                  tipText="최근 3개월 월평균 사업 관련 총 지출입니다. 임차료, 인건비, 재료비 등."
-                  value={sim.expense}
-                  onChange={(v) => { setSim((p) => ({ ...p, expense: v })); setSimResult(null); }}
-                  inputBase={inputBase} labelSm={labelSm}
-                />
-
-                <SimField
-                  label="현재 대출금" unit="만원"
-                  tipKey="loan" activeTip={tooltip} setTip={setTooltip}
-                  tipText="현재 보유한 사업 관련 대출 잔액입니다. 없으면 0 또는 빈칸."
-                  value={sim.loan}
-                  onChange={(v) => { setSim((p) => ({ ...p, loan: v })); setSimResult(null); }}
-                  inputBase={inputBase} labelSm={labelSm}
-                />
-
+                <SimField label="초기비용" unit="만원" required tipKey="initialCost" activeTip={tooltip} setTip={setTooltip}
+                  tipText="사업 시작에 필요한 전체 초기비용입니다." value={sim.initialCost} disabled={simLoading}
+                  onChange={(v) => { setSim((p) => ({ ...p, initialCost: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
+                <SimField label="자기자본" unit="만원" required tipKey="ownCapital" activeTip={tooltip} setTip={setTooltip}
+                  tipText="초기비용에 사용할 수 있는 자기자본입니다." value={sim.ownCapital} disabled={simLoading}
+                  onChange={(v) => { setSim((p) => ({ ...p, ownCapital: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
+                <SimField label="월매출" unit="만원" required tipKey="monthlyRevenue" activeTip={tooltip} setTip={setTooltip}
+                  tipText="월 기준 예상 또는 실제 매출입니다." value={sim.monthlyRevenue} disabled={simLoading}
+                  onChange={(v) => { setSim((p) => ({ ...p, monthlyRevenue: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
+                <SimField label="월지출" unit="만원" required tipKey="monthlyExpense" activeTip={tooltip} setTip={setTooltip}
+                  tipText="월 기준 사업 관련 전체 지출입니다." value={sim.monthlyExpense} disabled={simLoading}
+                  onChange={(v) => { setSim((p) => ({ ...p, monthlyExpense: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
+                <SimField label="대출금액" unit="만원" required tipKey="loanAmount" activeTip={tooltip} setTip={setTooltip}
+                  tipText="계산에 반영할 대출 원금입니다. 없으면 0을 입력하세요." value={sim.loanAmount} disabled={simLoading}
+                  onChange={(v) => { setSim((p) => ({ ...p, loanAmount: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <SimField
-                    label="현재 대출 금리" unit="%"
-                    tipKey="rate" activeTip={tooltip} setTip={setTooltip}
-                    tipText="연 이자율입니다. 정책자금은 2~4%, 은행권은 4~7% 수준입니다."
-                    value={sim.rate}
-                    onChange={(v) => { setSim((p) => ({ ...p, rate: v })); setSimResult(null); }}
-                    inputBase={inputBase} labelSm={labelSm}
-                  />
-                  <SimField
-                    label="원하는 상환기간" unit="개월"
-                    tipKey="period" activeTip={tooltip} setTip={setTooltip}
-                    tipText="대출을 나눠 갚을 기간입니다. 36개월(3년)이 일반적입니다."
-                    value={sim.period}
-                    onChange={(v) => { setSim((p) => ({ ...p, period: v })); setSimResult(null); }}
-                    inputBase={inputBase} labelSm={labelSm}
-                  />
+                  <SimField label="연이율" unit="%" required tipKey="annualInterestRate" activeTip={tooltip} setTip={setTooltip}
+                    tipText="연 단위 이자율을 퍼센트로 입력합니다." value={sim.annualInterestRate} disabled={simLoading}
+                    onChange={(v) => { setSim((p) => ({ ...p, annualInterestRate: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
+                  <SimField label="대출기간" unit="개월" required tipKey="loanTermMonths" activeTip={tooltip} setTip={setTooltip}
+                    tipText="대출 상환기간을 개월 단위 정수로 입력합니다." value={sim.loanTermMonths} disabled={simLoading}
+                    onChange={(v) => { setSim((p) => ({ ...p, loanTermMonths: v })); clearSimFeedback(); }} inputBase={inputBase} labelSm={labelSm} />
                 </div>
               </div>
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, marginBottom: 14 }}>
-                <span style={{ fontSize: 11, color: simFilledCount >= 3 ? "#1B4DFF" : "#9CA3AF", fontWeight: 600 }}>
-                  {simFilledCount} / 7 항목 입력됨
-                </span>
+              <div style={{ marginTop: 16, marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: simFilledCount === 7 ? "#1B4DFF" : "#9CA3AF", fontWeight: 600 }}>{simFilledCount} / 7 항목 입력됨</span>
+                {(simValidation || simError) && <p role="alert" style={{ fontSize: 12, color: "#B91C1C", margin: "8px 0 0", lineHeight: 1.5 }}>{simValidation || simError}</p>}
               </div>
-
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => { setSim(INITIAL_SIM); setSimResult(null); }}
-                  style={{ flex: 1, padding: "12px", borderRadius: 10, border: "1.5px solid #E5E7EB", background: "transparent", color: "#6B7280", fontWeight: 600, fontSize: 14, cursor: "pointer", fontFamily: "var(--font-sans)", transition: "all 0.14s" }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#D1D5DB"; (e.currentTarget as HTMLButtonElement).style.color = "#374151"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#E5E7EB"; (e.currentTarget as HTMLButtonElement).style.color = "#6B7280"; }}
-                >입력 초기화</button>
-                <button onClick={runSim} disabled={simFilledCount < 3}
-                  style={{ flex: 2, padding: "12px", borderRadius: 10, border: "none", background: simFilledCount >= 3 ? "#1B4DFF" : "#E5E7EB", color: simFilledCount >= 3 ? "#fff" : "#9CA3AF", fontWeight: 700, fontSize: 14, cursor: simFilledCount >= 3 ? "pointer" : "default", fontFamily: "var(--font-sans)", transition: "all 0.14s" }}
-                  onMouseEnter={(e) => { if (simFilledCount >= 3) (e.currentTarget as HTMLButtonElement).style.background = "#1640D6"; }}
-                  onMouseLeave={(e) => { if (simFilledCount >= 3) (e.currentTarget as HTMLButtonElement).style.background = "#1B4DFF"; }}
-                >결과 계산하기</button>
+                <button onClick={() => { setSim(INITIAL_SIM); clearSimFeedback(); }} disabled={simLoading}
+                  style={{ flex: 1, padding: "12px", borderRadius: 10, border: "1.5px solid #E5E7EB", background: "transparent", color: "#6B7280", fontWeight: 600, fontSize: 14, cursor: simLoading ? "default" : "pointer", fontFamily: "var(--font-sans)" }}>입력 초기화</button>
+                <button onClick={runSim} disabled={simLoading}
+                  style={{ flex: 2, padding: "12px", borderRadius: 10, border: "none", background: simLoading ? "#A5B4FC" : "#1B4DFF", color: "#fff", fontWeight: 700, fontSize: 14, cursor: simLoading ? "default" : "pointer", fontFamily: "var(--font-sans)" }}>
+                  {simLoading ? "계산 중…" : simError ? "다시 계산하기" : "결과 계산하기"}
+                </button>
               </div>
             </div>
 
-            {/* ─ 오른쪽: 결과 ─ */}
             {simResult ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, justifyContent: "space-between" }}>
-
-                {/* 상단 강조 카드 2개 */}
+              <div style={{ ...card, padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+                <p style={{ fontWeight: 700, fontSize: 15, margin: 0 }}>Backend 계산 결과</p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div style={{ ...card, padding: "16px 18px", borderColor: "#FECACA" }}>
-                    <p style={{ fontSize: 11, color: "#9CA3AF", margin: 0, fontWeight: 600 }}>예상 총 부채</p>
-                    <p style={{ fontSize: 22, fontWeight: 800, color: "#DC2626", margin: "5px 0 3px", letterSpacing: "-0.7px" }}>
-                      {simResult.debt > 0 ? `${simResult.debt.toLocaleString()}만원` : "없음"}
-                    </p>
-                    <p style={{ fontSize: 11, color: "#9CA3AF", margin: 0 }}>
-                      {simResult.monthlyNet < 0 ? `월 ${Math.abs(simResult.monthlyNet).toLocaleString()}만원 적자 기준` : "월 흑자 구조"}
-                    </p>
-                  </div>
-                  <div style={{ ...card, padding: "16px 18px", borderColor: simResult.months < 12 ? "#FECACA" : "#FDE68A" }}>
-                    <p style={{ fontSize: 11, color: "#9CA3AF", margin: 0, fontWeight: 600 }}>버틸 수 있는 기간</p>
-                    <p style={{ fontSize: 22, fontWeight: 800, color: simResult.months >= 999 ? "#059669" : simResult.months < 12 ? "#DC2626" : "#D97706", margin: "5px 0 3px", letterSpacing: "-0.7px" }}>
-                      {simResult.months >= 999 ? "안정적" : `${simResult.months}개월`}
-                    </p>
-                    <p style={{ fontSize: 11, color: "#9CA3AF", margin: 0 }}>
-                      보유 자금 {Number(sim.owned).toLocaleString()}만원 소진 기준
-                    </p>
-                  </div>
-                </div>
-
-                {/* 런웨이 바 */}
-                <RunwayBar months={simResult.months} />
-
-                {/* 인사이트 */}
-                <div style={{ ...card, padding: "14px 18px", display: "flex", flexDirection: "column", gap: 6 }}>
                   {[
-                    simResult.monthlyNet < 0
-                      ? `📌 월 ${Math.abs(simResult.monthlyNet).toLocaleString()}만원 적자가 예상됩니다. 지출 항목을 점검해보세요.`
-                      : "현재 입력 기준으로는 월 흑자 구조입니다.",
-                    simResult.months < 6
-                      ? "버티는 기간이 6개월 미만입니다. 초기 비용 절감 또는 외부 자금 조달을 검토하세요."
-                      : simResult.months < 18
-                        ? "버티는 기간이 18개월 미만입니다. 정부지원 자금을 적극 활용하는 것을 권장합니다."
-                        : "버티는 기간이 충분한 편입니다. 매출 성장 계획을 구체화해보세요.",
-                  ].map((txt, i) => (
-                    <p key={i} style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.6 }}>{txt}</p>
+                    { label: "초기 가용 현금", value: formatManwon(simResult.available_cash) },
+                    { label: "월 원리금 상환액", value: formatManwon(simResult.monthly_loan_payment) },
+                    { label: "월 현금흐름", value: formatManwon(simResult.monthly_cash_flow) },
+                    { label: "Cash Burn", value: formatManwon(simResult.monthly_cash_burn) },
+                    { label: "Runway", value: simResult.runway_months === null ? "현재 입력 기준 현금 소진 없음" : `${simResult.runway_months.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}개월` },
+                    { label: "Runway 시점 잔존채무", value: simResult.remaining_debt_at_runway === null ? "해당 없음" : formatManwon(simResult.remaining_debt_at_runway) },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ padding: "13px 14px", borderRadius: 10, background: "#F9FAFB", border: "1px solid #F0F1F4" }}>
+                      <p style={{ fontSize: 11, color: "#6B7280", margin: "0 0 5px" }}>{label}</p>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: "#111827", margin: 0 }}>{value}</p>
+                    </div>
                   ))}
                 </div>
-
-                {/* 면책 문구 — 인사이트 바로 아래 */}
-                <p style={{ fontSize: 10, color: "#A8AFBC", margin: "-4px 0 0", lineHeight: 1.5 }}>
-                  본 계산기는 최악의 시나리오 기준으로 산출된 결과이며, 정확한 상담은 전문가와 진행하시기 바랍니다.
-                </p>
-
+                {simResult.assumptions.length > 0 && (
+                  <div style={{ padding: "12px 14px", borderRadius: 10, background: "#F9FAFB" }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", margin: "0 0 5px" }}>계산 가정</p>
+                    {simResult.assumptions.map((assumption) => <p key={assumption} style={{ fontSize: 11, color: "#6B7280", margin: "3px 0", lineHeight: 1.5 }}>• {assumption}</p>)}
+                  </div>
+                )}
+                <p style={{ fontSize: 10, color: "#A8AFBC", margin: 0, lineHeight: 1.6 }}>{simResult.disclaimer}</p>
               </div>
             ) : (
               <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 32px", gap: 12, textAlign: "center" }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="10" width="4" height="8" rx="1" fill="#1B4DFF" opacity="0.4"/><rect x="8" y="6" width="4" height="12" rx="1" fill="#1B4DFF" opacity="0.7"/><rect x="14" y="2" width="4" height="16" rx="1" fill="#1B4DFF"/></svg>
                 </div>
-                <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: "#111827" }}>조건을 입력하고 계산해보세요</p>
-                <p style={{ fontSize: 13, color: "#9CA3AF", margin: 0, lineHeight: 1.6 }}>최악의 시나리오를 미리 파악하면<br />훨씬 단단한 창업 준비가 가능합니다.</p>
+                <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: "#111827" }}>{simLoading ? "Backend에서 계산 중입니다…" : "조건을 입력하고 계산해보세요"}</p>
+                {simError && <button onClick={runSim} disabled={simLoading} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: "#1B4DFF", color: "#fff", fontWeight: 700, cursor: "pointer" }}>재시도</button>}
               </div>
             )}
           </div>
@@ -625,58 +535,72 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
 
       {/* ── Section D — 매출장표 분석 (소상공인) ── */}
       {profile.userType === "소상공인" && (
-        <Section title="매출장표 분석" sub="매출 데이터를 업로드하면 AI가 패턴을 분석해드려요" badge="소상공인 전용">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-            <div onClick={() => setSalesUploaded(true)}
-              style={{ ...card, padding: 40, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, cursor: "pointer", border: salesUploaded ? "1.5px solid #1B4DFF" : "2px dashed #E5E7EB", transition: "all 0.2s" }}>
-              <div style={{ width: 52, height: 52, borderRadius: 14, background: salesUploaded ? "#EEF2FF" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {salesUploaded
-                  ? <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M4 11L9 16L18 7" stroke="#1B4DFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  : <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M4 14v3a1 1 0 001 1h12a1 1 0 001-1v-3M11 4v10M8 7l3-3 3 3" stroke="#9CA3AF" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                }
+        <Section title="매출장표 분석" sub="CSV 또는 XLSX 매출 자료를 Backend에서 집계합니다" badge="소상공인 전용">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
+            <div style={{ ...card, padding: 40, display: "flex", flexDirection: "column", alignItems: "center", gap: 14, border: salesFile ? "1.5px solid #1B4DFF" : "2px dashed #E5E7EB" }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, background: salesFile ? "#EEF2FF" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M4 14v3a1 1 0 001 1h12a1 1 0 001-1v-3M11 4v10M8 7l3-3 3 3" stroke={salesFile ? "#1B4DFF" : "#9CA3AF"} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </div>
               <div style={{ textAlign: "center" }}>
-                <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: salesUploaded ? "#1B4DFF" : "#111827" }}>
-                  {salesUploaded ? "매출장표 업로드 완료" : "매출장표 파일 업로드"}
-                </p>
-                <p style={{ fontSize: 12, color: "#6B7280", margin: "5px 0 0", lineHeight: 1.5 }}>
-                  {salesUploaded ? "2025년 1월~6월 데이터 (6개월)" : "엑셀, CSV, 국세청 자료 지원"}
-                </p>
+                <p style={{ fontWeight: 700, fontSize: 15, margin: 0, color: salesFile ? "#1B4DFF" : "#111827" }}>{salesFile ? salesFile.name : "매출장표 파일 업로드"}</p>
+                <p style={{ fontSize: 12, color: "#6B7280", margin: "5px 0 0" }}>CSV 또는 XLSX · 최대 5MB</p>
               </div>
-              {!salesUploaded && (
-                <button style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#1B4DFF", color: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "var(--font-sans)" }}>
-                  파일 선택
-                </button>
-              )}
+              <label htmlFor="sales-file" style={{ padding: "9px 22px", borderRadius: 9, background: "#1B4DFF", color: "#fff", fontWeight: 600, fontSize: 13, cursor: salesLoading ? "default" : "pointer" }}>파일 선택</label>
+              <input id="sales-file" type="file" accept=".csv,.xlsx" disabled={salesLoading} onChange={(event) => selectSalesFile(event.target.files?.[0] ?? null)} style={{ display: "none" }} />
+              {(salesValidation || salesError) && <p role="alert" style={{ fontSize: 12, color: "#B91C1C", margin: 0, lineHeight: 1.5, textAlign: "center" }}>{salesValidation || salesError}</p>}
+              <button onClick={runSalesAnalysis} disabled={salesLoading}
+                style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none", background: salesLoading ? "#A5B4FC" : "#1B4DFF", color: "#fff", fontWeight: 700, fontSize: 14, cursor: salesLoading ? "default" : "pointer", fontFamily: "var(--font-sans)" }}>
+                {salesLoading ? "분석 중…" : salesError ? "다시 분석하기" : "분석하기"}
+              </button>
             </div>
 
-            <div style={{ ...card, padding: 24, opacity: salesUploaded ? 1 : 0.4, transition: "opacity 0.3s" }}>
-              <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 16px" }}>분석 요약</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {[
-                  { label: "월 평균 매출", value: "287만원", trend: "+3.2%", up: true },
-                  { label: "매출 최고월", value: "3월 (412만원)", trend: "", up: true },
-                  { label: "매출 최저월", value: "6월 (198만원)", trend: "-12%", up: false },
-                  { label: "전년 동기 대비", value: "+8.4%", trend: "성장세", up: true },
-                ].map(({ label, value, trend, up }) => (
-                  <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 9, background: "#F9FAFB" }}>
-                    <span style={{ fontSize: 13, color: "#6B7280" }}>{label}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700 }}>{value}</span>
-                      {trend && <span style={{ fontSize: 11, fontWeight: 600, color: up ? "#059669" : "#DC2626" }}>{trend}</span>}
+            <div style={{ ...card, padding: 24 }}>
+              <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 16px" }}>분석 결과</p>
+              {salesResult ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      { label: "평균 월매출", value: formatKrw(salesResult.summary.average_monthly_sales) },
+                      { label: "최신 월매출", value: formatKrw(salesResult.summary.latest_month_sales) },
+                      { label: "최고 매출월", value: `${salesResult.summary.highest_month.month} · ${formatKrw(salesResult.summary.highest_month.sales)}` },
+                      { label: "최저 매출월", value: `${salesResult.summary.lowest_month.month} · ${formatKrw(salesResult.summary.lowest_month.sales)}` },
+                      { label: "최근 추세", value: `${trendLabel[salesResult.recent_trend.direction]} · ${formatPercent(salesResult.recent_trend.percent)}` },
+                      { label: "변동계수", value: formatPercent(salesResult.variability.coefficient_of_variation_percent) },
+                      { label: "전월 대비 변화", value: formatPercent(salesResult.mom_change_percent) },
+                    ].map(({ label, value }) => (
+                      <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderRadius: 9, background: "#F9FAFB" }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>{label}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, textAlign: "right" }}>{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", margin: "0 0 7px" }}>월별 데이터</p>
+                    <div style={{ maxHeight: 190, overflowY: "auto", border: "1px solid #E5E7EB", borderRadius: 9 }}>
+                      {salesResult.monthly_series.map((month) => (
+                        <div key={month.month} style={{ display: "grid", gridTemplateColumns: "80px 1fr auto", gap: 10, padding: "9px 12px", borderBottom: "1px solid #F0F1F4", fontSize: 12 }}>
+                          <span style={{ color: "#6B7280" }}>{month.month}</span><strong style={{ textAlign: "right" }}>{formatKrw(month.sales)}</strong><span style={{ color: "#9CA3AF" }}>{month.transaction_count}건</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-              {salesUploaded && (
-                <div style={{ marginTop: 14, padding: "13px 16px", borderRadius: 10, background: "#EEF2FF", border: "1px solid #C7D2FE" }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#1B4DFF", margin: "0 0 3px" }}>AI 추천</p>
-                  <p style={{ fontSize: 12, color: "#374151", margin: 0, lineHeight: 1.6 }}>6월 매출 하락 패턴 감지. 경영안정자금 또는 소상공인 긴급자금 신청을 검토해보세요.</p>
+                  {(salesResult.recent_trend.reason || salesResult.mom_change_reason) && (
+                    <p style={{ fontSize: 11, color: "#6B7280", margin: 0, lineHeight: 1.5 }}>{salesResult.recent_trend.reason || salesResult.mom_change_reason}</p>
+                  )}
+                  {salesResult.warnings.length > 0 && (
+                    <div style={{ padding: "11px 13px", borderRadius: 9, background: "#FFF7ED", color: "#9A3412" }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, margin: "0 0 4px" }}>데이터 경고</p>
+                      {salesResult.warnings.map((warning) => <p key={warning} style={{ fontSize: 11, margin: "2px 0", lineHeight: 1.5 }}>• {warning}</p>)}
+                    </div>
+                  )}
+                  <p style={{ fontSize: 10, color: "#B0B8C8", margin: 0, lineHeight: 1.6 }}>{salesResult.disclaimer}</p>
+                </div>
+              ) : (
+                <div style={{ minHeight: 260, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "#9CA3AF", margin: 0 }}>{salesLoading ? "Backend에서 매출 자료를 분석 중입니다…" : "파일을 선택한 뒤 분석하기를 눌러주세요."}</p>
+                  {salesError && <button onClick={runSalesAnalysis} disabled={salesLoading} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: "#1B4DFF", color: "#fff", fontWeight: 700, cursor: "pointer" }}>재시도</button>}
                 </div>
               )}
-              <p style={{ fontSize: 10, color: "#B0B8C8", margin: "14px 0 0", lineHeight: 1.6 }}>
-                AI 분석 결과는 참고용이며, 실제 매출 상황과 차이가 있을 수 있습니다.
-              </p>
             </div>
           </div>
         </Section>
@@ -684,103 +608,62 @@ export default function MyPage({ likedIds, toggleLike, profile, setProfile }: My
 
       {/* ── Section E — 소득 안정성 분석 (프리랜서) ── */}
       {profile.userType === "프리랜서" && (
-        <Section title="소득 안정성 분석" sub="최근 6개월 월별 소득을 입력하면 안정성을 분석해드려요" badge="프리랜서 전용">
+        <Section title="소득 안정성 분석" sub="최근 정확히 6개월 소득을 Backend에서 계산합니다" badge="프리랜서 전용">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
-
-            {/* 왼쪽: 월별 입력 */}
             <div style={{ ...card, padding: "24px 26px" }}>
-              <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 18px", letterSpacing: "-0.2px" }}>수입 현황 입력</p>
+              <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 18px", letterSpacing: "-0.2px" }}>소득 현황 입력</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {MONTHS_KR.map((mo, i) => (
-                  <div key={mo} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", width: 28, flexShrink: 0 }}>{mo}</span>
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 9, overflow: "hidden", transition: "border-color 0.15s" }}>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={monthlyIncome[i] ?? ""}
-                        onChange={(e) => {
+                {MONTHS_KR.map((month, index) => (
+                  <div key={month} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", width: 28, flexShrink: 0 }}>{month}</span>
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 9, overflow: "hidden" }}>
+                      <input type="number" min="0" placeholder="0" value={monthlyIncome[index] ?? ""} disabled={incomeLoading}
+                        onChange={(event) => {
                           const next = [...monthlyIncome];
-                          next[i] = e.target.value;
+                          next[index] = event.target.value;
                           setMonthlyIncome(next);
-                          setFreeResult(null);
+                          setIncomeResult(null);
+                          setIncomeValidation(null);
+                          setIncomeError(null);
                         }}
-                        onFocus={(e) => { (e.currentTarget.parentElement as HTMLDivElement).style.borderColor = "#7C3AED"; (e.currentTarget.parentElement as HTMLDivElement).style.background = "#fff"; }}
-                        onBlur={(e) => { (e.currentTarget.parentElement as HTMLDivElement).style.borderColor = "#E5E7EB"; (e.currentTarget.parentElement as HTMLDivElement).style.background = "#F9FAFB"; }}
-                        style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 14, padding: "10px 12px", fontFamily: "var(--font-sans)", color: "#111827" }}
-                      />
+                        style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 14, padding: "10px 12px", fontFamily: "var(--font-sans)", color: "#111827" }} />
                       <span style={{ padding: "0 12px", fontSize: 12, color: "#9CA3AF", fontWeight: 500 }}>만원</span>
                     </div>
                   </div>
                 ))}
               </div>
-              <button
-                onClick={() => {
-                  const vals = monthlyIncome.map(Number).filter((v) => v > 0);
-                  if (vals.length === 0) return;
-                  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-                  const min = Math.min(...vals);
-                  const max = Math.max(...vals);
-                  const stddev = Math.sqrt(vals.reduce((a, b) => a + (b - avg) ** 2, 0) / vals.length);
-                  const cv = Math.round((stddev / avg) * 100);
-                  let stability = "안정적";
-                  let color = "#059669";
-                  if (cv >= 40) { stability = "변동 큼"; color = "#DC2626"; }
-                  else if (cv >= 20) { stability = "보통"; color = "#D97706"; }
-                  setFreeResult({ avg: Math.round(avg), cv, min, max, stability, color });
-                }}
-                style={{ marginTop: 18, width: "100%", padding: "13px", borderRadius: 10, border: "none", background: "#7C3AED", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "var(--font-sans)", transition: "background 0.15s" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#6D28D9")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#7C3AED")}
-              >
-                분석하기
+              {(incomeValidation || incomeError) && <p role="alert" style={{ fontSize: 12, color: "#B91C1C", margin: "12px 0 0", lineHeight: 1.5 }}>{incomeValidation || incomeError}</p>}
+              <button onClick={runIncomeAnalysis} disabled={incomeLoading}
+                style={{ marginTop: 18, width: "100%", padding: "13px", borderRadius: 10, border: "none", background: incomeLoading ? "#C4B5FD" : "#7C3AED", color: "#fff", fontWeight: 700, fontSize: 14, cursor: incomeLoading ? "default" : "pointer", fontFamily: "var(--font-sans)" }}>
+                {incomeLoading ? "계산 중…" : incomeError ? "다시 계산하기" : "분석하기"}
               </button>
             </div>
 
-            {/* 오른쪽: 결과 */}
             <div style={{ ...card, padding: "24px 26px" }}>
-              {freeResult ? (
+              {incomeResult ? (
                 <>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-                    <p style={{ fontWeight: 700, fontSize: 15, margin: 0, letterSpacing: "-0.2px" }}>소득 안정성 분석 결과</p>
-                    <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 99, background: freeResult.color + "18", color: freeResult.color, border: `1px solid ${freeResult.color}30` }}>
-                      {freeResult.stability}
-                    </span>
-                  </div>
+                  <p style={{ fontWeight: 700, fontSize: 15, margin: "0 0 20px" }}>소득 안정성 계산 결과</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
                     {[
-                      { label: "최근 6개월 평균 소득", value: `${freeResult.avg.toLocaleString()}만원` },
-                      { label: "소득 변동성 (CV)", value: `${freeResult.cv}%` },
-                      { label: "최저 월 소득", value: `${freeResult.min.toLocaleString()}만원` },
-                      { label: "최고 월 소득", value: `${freeResult.max.toLocaleString()}만원` },
+                      { label: "평균 소득", value: formatManwon(incomeResult.average_income) },
+                      { label: "표준편차", value: formatManwon(incomeResult.standard_deviation) },
+                      { label: "변동계수", value: formatPercent(incomeResult.coefficient_of_variation_percent) },
+                      { label: "최소 소득", value: formatManwon(incomeResult.minimum_income) },
+                      { label: "최대 소득", value: formatManwon(incomeResult.maximum_income) },
+                      { label: "기간", value: `${incomeResult.period_months}개월` },
                     ].map(({ label, value }) => (
                       <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", borderRadius: 10, background: "#F9FAFB", border: "1px solid #F0F1F4" }}>
-                        <span style={{ fontSize: 13, color: "#6B7280" }}>{label}</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{value}</span>
+                        <span style={{ fontSize: 13, color: "#6B7280" }}>{label}</span><span style={{ fontSize: 14, fontWeight: 700 }}>{value}</span>
                       </div>
                     ))}
                   </div>
-                  {/* 변동성 바 */}
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: "#9CA3AF" }}>안정적</span>
-                      <span style={{ fontSize: 11, color: "#9CA3AF" }}>변동 큼</span>
-                    </div>
-                    <div style={{ height: 8, borderRadius: 99, background: "#F0F1F4", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.min(freeResult.cv * 1.5, 100)}%`, background: `linear-gradient(90deg, #059669, ${freeResult.color})`, borderRadius: 99, transition: "width 0.5s" }} />
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 10, color: "#B0B8C8", margin: 0, lineHeight: 1.6 }}>
-                    AI 분석 결과는 참고용이며, 실제 소득 상황과 차이가 있을 수 있습니다.
-                  </p>
+                  <p style={{ fontSize: 10, color: "#B0B8C8", margin: 0, lineHeight: 1.6 }}>{incomeResult.disclaimer}</p>
                 </>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 280, gap: 12, textAlign: "center" }}>
-                  <div style={{ width: 56, height: 56, borderRadius: 16, background: "#F3E8FF", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2C8.686 2 6 4.686 6 8c0 2.21 1.13 4.16 2.84 5.29L9 15h6l.16-1.71A6 6 0 0012 2z" fill="#7C3AED" opacity="0.7"/><path d="M9 15v1a3 3 0 006 0v-1" stroke="#7C3AED" strokeWidth="1.5"/></svg>
-                  </div>
-                  <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: "#111827" }}>6개월 소득을 입력하고<br />분석하기를 눌러보세요</p>
-                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0, lineHeight: 1.6 }}>평균 소득, 변동성, 최저·최고 소득을<br />한눈에 확인할 수 있어요</p>
+                  <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: "#111827" }}>{incomeLoading ? "Backend에서 계산 중입니다…" : "6개월 소득을 입력하고 분석하기를 눌러주세요"}</p>
+                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0 }}>평균, 표준편차, 변동계수, 최소·최대 소득을 확인합니다.</p>
+                  {incomeError && <button onClick={runIncomeAnalysis} disabled={incomeLoading} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: "#7C3AED", color: "#fff", fontWeight: 700, cursor: "pointer" }}>재시도</button>}
                 </div>
               )}
             </div>

@@ -2,8 +2,13 @@ import type {
   BusinessStatus,
   ChatRequest,
   ChatResponse,
+  IncomeStabilityRequest,
+  IncomeStabilityResponse,
   Program,
   ProgramSearchResponse,
+  RiskCalculationRequest,
+  RiskCalculationResponse,
+  SalesAnalysisResponse,
   UserType,
 } from "./types";
 
@@ -41,7 +46,7 @@ async function apiRequest<T>(path: string, init?: RequestInit, timeoutMs = 15_00
       ...init,
       headers: {
         Accept: "application/json",
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
         ...init?.headers,
       },
       signal: controller.signal,
@@ -88,3 +93,26 @@ export function postChat(payload: ChatRequest): Promise<ChatResponse> {
   );
 }
 
+export function postRiskCalculation(payload: RiskCalculationRequest): Promise<RiskCalculationResponse> {
+  return apiRequest<RiskCalculationResponse>(
+    "/risk/calculate",
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export function postIncomeStability(payload: IncomeStabilityRequest): Promise<IncomeStabilityResponse> {
+  return apiRequest<IncomeStabilityResponse>(
+    "/income-stability/calculate",
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export function postSalesAnalysis(file: File): Promise<SalesAnalysisResponse> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiRequest<SalesAnalysisResponse>(
+    "/sales-analysis/analyze",
+    { method: "POST", body },
+    45_000,
+  );
+}
